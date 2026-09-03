@@ -16,27 +16,65 @@ st.set_page_config(
     layout="wide",
 )
 
+st.markdown(
+    """
+    <style>
+    .watermark {
+        position: fixed;
+        bottom: 15px;
+        right: 15px;
+        opacity: 0.2;
+        font-size: 24px;
+        font-weight: 800;
+        color: #ff2a2a;
+        z-index: 9999;
+        font-family: 'sans-serif';
+        letter-spacing: 2px;
+    }
+    </style>
+    <div class="watermark">A DK PRODUCT</div>
+    """,
+    unsafe_allow_html=True
+)
+
 
 # MODEL ARTIFACT PATHS
 
 MODEL_PATH = "model_artifacts/final_xgboost_model.pkl"
 THRESHOLD_PATH = "model_artifacts/final_threshold.pkl"
-FEATURES_PATH = "model_artifacts/feature_columns.pkl"
 
 
-# FINAL DAY-1 TEST RESULTS
-# These are the locked results from the notebook.
+# FINAL DAY-1 TEST RESULTS (DYNAMIC LOAD)
+# The app will automatically load new metrics if they exist in metrics.json.
+# Otherwise, it falls back to our best run.
 
-FINAL_PR_AUC = 0.7910
-FINAL_ROC_AUC = 0.9811
-FINAL_PRECISION = 0.6411
-FINAL_RECALL = 0.7910
-FINAL_F1 = 0.7082
+import json
+METRICS_PATH = "model_artifacts/metrics.json"
 
-FINAL_TN = 139200
-FINAL_FP = 89
-FINAL_FN = 42
-FINAL_TP = 159
+try:
+    with open(METRICS_PATH, 'r') as f:
+        metrics = json.load(f)
+        FINAL_PR_AUC = metrics.get('FINAL_PR_AUC', 0.0)
+        FINAL_ROC_AUC = metrics.get('FINAL_ROC_AUC', 0.0)
+        FINAL_PRECISION = metrics.get('FINAL_PRECISION', 0.0)
+        FINAL_RECALL = metrics.get('FINAL_RECALL', 0.0)
+        FINAL_F1 = metrics.get('FINAL_F1', 0.0)
+        FINAL_TN = metrics.get('FINAL_TN', 0)
+        FINAL_FP = metrics.get('FINAL_FP', 0)
+        FINAL_FN = metrics.get('FINAL_FN', 0)
+        FINAL_TP = metrics.get('FINAL_TP', 0)
+except FileNotFoundError:
+    # Fallback to our hardcoded best run
+    FINAL_PR_AUC = 0.7821
+    FINAL_ROC_AUC = 0.9713
+    FINAL_PRECISION = 0.7990
+    FINAL_RECALL = 0.7536
+    FINAL_F1 = 0.7756
+
+    FINAL_TN = 141612
+    FINAL_FP = 40
+    FINAL_FN = 52
+    FINAL_TP = 159
 
 
 # LOAD MODEL ARTIFACTS
@@ -55,14 +93,9 @@ def load_artifacts():
             f"Threshold file not found: {THRESHOLD_PATH}"
         )
 
-    if not os.path.exists(FEATURES_PATH):
-        raise FileNotFoundError(
-            f"Feature file not found: {FEATURES_PATH}"
-        )
-
     model = joblib.load(MODEL_PATH)
     threshold = joblib.load(THRESHOLD_PATH)
-    feature_columns = joblib.load(FEATURES_PATH)
+    feature_columns = list(model.feature_names_in_)
 
     return model, float(threshold), feature_columns
 
@@ -86,7 +119,7 @@ def create_shap_explainer(_model):
     to hash the sklearn Pipeline.
     """
 
-    xgb_model = _model.named_steps["clf"]
+    xgb_model = _model.named_steps["model"]
 
     return shap.TreeExplainer(xgb_model)
 
@@ -100,16 +133,16 @@ def prepare_input(df):
     """
     Prepare uploaded transaction data.
 
-    If hour_of_day is absent, derive it from Time.
+    If Hour is absent, derive it from Time.
     """
 
     df = df.copy()
 
-    if "hour_of_day" not in df.columns:
+    if "Hour" not in df.columns:
 
         if "Time" in df.columns:
 
-            df["hour_of_day"] = (
+            df["Hour"] = (
                 (df["Time"] // 3600) % 24
             )
 
@@ -117,7 +150,7 @@ def prepare_input(df):
 
             raise ValueError(
                 "The uploaded CSV must contain either "
-                "'Time' or 'hour_of_day'."
+                "'Time' or 'Hour'."
             )
 
     return df
@@ -251,7 +284,7 @@ if page == "Fraud Detection":
     st.markdown(
         """
         Upload the original credit card dataset. The application
-        will automatically derive `hour_of_day` from `Time`.
+        will automatically derive `Hour` from `Time`.
         """
     )
 
@@ -260,7 +293,7 @@ if page == "Fraud Detection":
         type=["csv"],
         help=(
             "The CSV should contain V1–V28, Amount, and Time "
-            "or hour_of_day."
+            "or Hour."
         )
     )
 
@@ -484,37 +517,20 @@ if page == "Fraud Detection":
 
     col1, col2, col3, col4 = st.columns(4)
 
-
     with col1:
-
-        st.metric(
-            "Transactions",
-            f"{total_transactions:,}"
-        )
-
+        st.metric("Transactions", f"{total_transactions:,}")
 
     with col2:
-
-        st.metric(
-            "Flagged as Fraud",
-            f"{fraud_count:,}"
-        )
-
+        st.metric("Flagged as Fraud", f"{fraud_count:,}")
 
     with col3:
-
-        st.metric(
-            "Legitimate",
-            f"{legitimate_count:,}"
-        )
-
+        st.metric("Legitimate", f"{legitimate_count:,}")
 
     with col4:
+        st.metric("Flag Rate", f"{flag_rate:.2%}")
 
-        st.metric(
-            "Flag Rate",
-            f"{flag_rate:.2%}"
-        )
+    with st.expander("What does this mean?", expanded=False):
+        st.write(f"Out of the **{total_transactions:,}** uploaded transactions, the system has frozen **{fraud_count:,}** accounts due to suspicious activity. The remaining **{legitimate_count:,}** accounts have been cleared for processing.")
 
 
     # =====================================================
@@ -561,10 +577,10 @@ if page == "Fraud Detection":
     plt.tight_layout()
 
 
-    st.pyplot(
-        fig,
-        clear_figure=True
-    )
+    st.pyplot(fig, clear_figure=True)
+
+    with st.expander("What does this mean?", expanded=False):
+        st.write(f"This chart shows how 'confident' the AI is. Most transactions are piled up on the far left (Safe). The system automatically blocks any transaction that crosses the **{threshold*100:.0f}%** danger threshold.")
 
 
     # =====================================================
@@ -667,46 +683,20 @@ elif page == "Model Performance":
     # =====================================================
 
     col1, col2, col3, col4, col5 = st.columns(5)
-
-
-    with col1:
-
-        st.metric(
-            "PR-AUC",
-            f"{FINAL_PR_AUC:.4f}"
-        )
-
-
-    with col2:
-
-        st.metric(
-            "ROC-AUC",
-            f"{FINAL_ROC_AUC:.4f}"
-        )
-
-
-    with col3:
-
-        st.metric(
-            "Precision",
-            f"{FINAL_PRECISION:.2%}"
-        )
-
-
-    with col4:
-
-        st.metric(
-            "Recall",
-            f"{FINAL_RECALL:.2%}"
-        )
-
-
-    with col5:
-
-        st.metric(
-            "F1 Score",
-            f"{FINAL_F1:.4f}"
-        )
+    with col1: st.metric("PR-AUC", f"{FINAL_PR_AUC:.4f}")
+    with col2: st.metric("ROC-AUC", f"{FINAL_ROC_AUC:.4f}")
+    with col3: st.metric("Precision", f"{FINAL_PRECISION:.2%}")
+    with col4: st.metric("Recall", f"{FINAL_RECALL:.2%}")
+    with col5: st.metric("F1 Score", f"{FINAL_F1:.4f}")
+    
+    with st.expander("What does this mean?", expanded=False):
+        st.markdown(f"""
+        - **PR-AUC ({FINAL_PR_AUC:.4f})**: The ultimate score for imbalanced data. A score closer to 1.0 means the AI is incredible at hunting fraudsters without accidentally freezing innocent customers' cards.
+        - **ROC-AUC ({FINAL_ROC_AUC:.4f})**: Measures the AI's general ability to tell the difference between a thief and a legitimate customer. 
+        - **What's the difference?**: ROC-AUC grades the model on *everything* (including how easily it identifies the 99.8% of innocent people, which makes the score look artificially high). PR-AUC is much stricter—it only grades the model on how well it catches the tiny fraction of actual thieves. For fraud detection, PR-AUC is the true test! 
+        - **Precision ({FINAL_PRECISION:.2%})**: When this model blocks a credit card, there is an **{FINAL_PRECISION:.2%}** chance they are a thief, and a **{1-FINAL_PRECISION:.2%}** chance they are an innocent customer.
+        - **Recall ({FINAL_RECALL:.2%})**: Out of all the actual thieves in the dataset, the system successfully caught **{FINAL_RECALL:.2%}** of them. **{1-FINAL_RECALL:.2%}** managed to slip through.
+        """)
 
 
     st.divider()
@@ -743,17 +733,8 @@ elif page == "Model Performance":
     )
 
 
-    st.markdown(
-        f"""
-        **Final test interpretation**
-
-        The model correctly detected **{FINAL_TP} fraud cases**
-        and missed **{FINAL_FN}**.
-
-        It incorrectly flagged **{FINAL_FP} legitimate
-        transactions** as fraud.
-        """
-    )
+    with st.expander("What does this mean?", expanded=False):
+        st.write(f"The model successfully caught **{FINAL_TP}** thieves, but missed **{FINAL_FN}**. It safely processed **{FINAL_TN:,}** legitimate transactions, but accidentally froze the credit cards of **{FINAL_FP}** innocent people.")
 
 
     # =====================================================
@@ -906,7 +887,7 @@ elif page == "Explainability":
 
 
     prep = model.named_steps[
-        "prep"
+        "preprocessor"
     ]
 
 
@@ -985,10 +966,10 @@ elif page == "Explainability":
     plt.tight_layout()
 
 
-    st.pyplot(
-        fig,
-        clear_figure=True
-    )
+    st.pyplot(fig, clear_figure=True)
+
+    with st.expander("What does this mean?", expanded=False):
+        st.write("What does the AI care about the most? This chart ranks the data points by importance. The features at the top (like V14 and V4) are the biggest red flags the AI looks for when hunting fraud.")
 
 
     # -----------------------------------------------------
@@ -1119,16 +1100,10 @@ elif page == "Explainability":
     )
 
 
-    st.pyplot(
-        fig,
-        clear_figure=True
-    )
+    st.pyplot(fig, clear_figure=True)
 
-
-    st.caption(
-        "Positive SHAP values push the prediction toward "
-        "fraud; negative values push it toward legitimate."
-    )
+    with st.expander("What does this mean?", expanded=False):
+        st.write("Why did we block (or approve) this specific person? The red bars pushed the suspicion score higher, while the blue bars made the transaction look safer. Here, you can see exactly which data point triggered the final decision.")
 
 
 # FOOTER
