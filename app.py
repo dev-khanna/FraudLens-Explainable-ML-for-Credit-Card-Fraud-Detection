@@ -298,9 +298,7 @@ if page == "Fraud Detection":
     )
 
 
-    # -----------------------------------------------------
     # Process uploaded file
-    # -----------------------------------------------------
 
     if uploaded_file is not None:
 
@@ -460,9 +458,7 @@ if page == "Fraud Detection":
             )
 
 
-    # -----------------------------------------------------
     # Check whether data exists
-    # -----------------------------------------------------
 
     results = st.session_state.results
 
@@ -484,9 +480,7 @@ if page == "Fraud Detection":
         st.stop()
 
 
-    # =====================================================
     # SUMMARY
-    # =====================================================
 
     st.header("2. Detection Summary")
 
@@ -533,9 +527,7 @@ if page == "Fraud Detection":
         st.write(f"Out of the **{total_transactions:,}** uploaded transactions, the system has frozen **{fraud_count:,}** accounts due to suspicious activity. The remaining **{legitimate_count:,}** accounts have been cleared for processing.")
 
 
-    # =====================================================
     # PROBABILITY DISTRIBUTION
-    # =====================================================
 
     st.subheader(
         "Fraud Probability Distribution"
@@ -583,9 +575,7 @@ if page == "Fraud Detection":
         st.write(f"This chart shows how 'confident' the AI is. Most transactions are piled up on the far left (Safe). The system automatically blocks any transaction that crosses the **{threshold*100:.0f}%** danger threshold.")
 
 
-    # =====================================================
     # RESULTS TABLE
-    # =====================================================
 
     st.header("3. Detection Results")
 
@@ -639,9 +629,7 @@ if page == "Fraud Detection":
     )
 
 
-    # =====================================================
     # DOWNLOAD
-    # =====================================================
 
     st.subheader(
         "Download Predictions"
@@ -678,9 +666,7 @@ elif page == "Model Performance":
     )
 
 
-    # =====================================================
     # MAIN METRICS
-    # =====================================================
 
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1: st.metric("PR-AUC", f"{FINAL_PR_AUC:.4f}")
@@ -702,9 +688,7 @@ elif page == "Model Performance":
     st.divider()
 
 
-    # =====================================================
     # CONFUSION MATRIX
-    # =====================================================
 
     st.subheader(
         "Confusion Matrix"
@@ -737,9 +721,7 @@ elif page == "Model Performance":
         st.write(f"The model successfully caught **{FINAL_TP}** thieves, but missed **{FINAL_FN}**. It safely processed **{FINAL_TN:,}** legitimate transactions, but accidentally froze the credit cards of **{FINAL_FP}** innocent people.")
 
 
-    # =====================================================
     # THRESHOLD
-    # =====================================================
 
     st.subheader(
         "Decision Threshold"
@@ -768,9 +750,7 @@ elif page == "Model Performance":
     )
 
 
-    # =====================================================
     # MODEL COMPARISON
-    # =====================================================
 
     st.subheader(
         "Model Comparison"
@@ -833,9 +813,7 @@ elif page == "Explainability":
     )
 
 
-    # =====================================================
     # CHECK FOR UPLOADED DATA
-    # =====================================================
 
     results = st.session_state.results
     input_df = st.session_state.input_df
@@ -856,9 +834,7 @@ elif page == "Explainability":
         st.stop()
 
 
-    # =====================================================
     # GLOBAL SHAP
-    # =====================================================
 
     st.subheader(
         "Global Feature Importance"
@@ -924,9 +900,7 @@ elif page == "Explainability":
     )
 
 
-    # -----------------------------------------------------
     # Plot top 15
-    # -----------------------------------------------------
 
     top_features = (
         shap_importance
@@ -972,9 +946,7 @@ elif page == "Explainability":
         st.write("What does the AI care about the most? This chart ranks the data points by importance. The features at the top (like V14 and V4) are the biggest red flags the AI looks for when hunting fraud.")
 
 
-    # -----------------------------------------------------
     # Importance table
-    # -----------------------------------------------------
 
     st.dataframe(
         shap_importance.head(15),
@@ -983,9 +955,7 @@ elif page == "Explainability":
     )
 
 
-    # =====================================================
     # INDIVIDUAL TRANSACTION
-    # =====================================================
 
     st.divider()
 
@@ -1057,9 +1027,7 @@ elif page == "Explainability":
             )
 
 
-    # =====================================================
     # SHAP WATERFALL
-    # =====================================================
 
     transformed_transaction = (
         prep.transform(
