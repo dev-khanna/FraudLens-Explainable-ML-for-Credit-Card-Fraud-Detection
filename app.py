@@ -1,1085 +1,651 @@
-import os
-
-import joblib
+"""Sentinel: a small investigation workflow around the original ML pipeline."""
+import json
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import shap
 import streamlit as st
 
-
-# PAGE CONFIGURATION
-
-st.set_page_config(
-    page_title="Credit Card Fraud Detection",
-    page_icon="💳",
-    layout="wide",
+from sentinel.core import (
+    ARTIFACTS, NOTEBOOK_URL, SAMPLE_NOTICE, SAMPLE_PATH, benchmark_metrics,
+    curve_data, digest_bytes, evaluate_scores, explanation_values, file_digest,
+    get_labels, load_bundle, load_supporting, result_table, score_csv, scored_export,
 )
+from sentinel.plots import (
+    confusion_figure, global_importance, performance_curves,
+    reference_comparison, risk_distribution, waterfall_figure,
+)
+from sentinel.records import (
+    DECISIONS, append_decision, audit_export, audit_frame, latest_decisions, latest_records,
+)
+from sentinel.style import CSS
 
-st.markdown(
-    """
-    <style>
-    .watermark {
-        position: fixed;
-        bottom: 15px;
-        right: 15px;
-        opacity: 0.2;
-        font-size: 24px;
-        font-weight: 800;
-        color: #ff2a2a;
-        z-index: 9999;
-        font-family: 'sans-serif';
-        letter-spacing: 2px;
+st.set_page_config(page_title="Sentinel | Fraud Intelligence", page_icon="◈", layout="wide")
+st.markdown(CSS, unsafe_allow_html=True)
+PAGES = ("Overview", "Transaction Explorer", "Investigation Workspace", "Model Intelligence")
+
+
+@st.cache_resource
+def cached_model(model_hash, threshold_hash):
+    return load_bundle()
+
+
+@st.cache_resource
+def cached_explainer(model_hash, _model):
+    return shap.TreeExplainer(_model.named_steps["model"])
+
+
+@st.cache_data(show_spinner=False)
+def cached_supporting(asset_hash, model_hash, threshold_hash, _bundle):
+    return load_supporting(_bundle)
+
+
+def initialize_state():
+    defaults = {
+        "navigation": "Overview", "analysis": None, "audit_events": [],
+        "selected_position": None, "walk_step": None, "tour_complete": False,
+        "upload_open": False, "local_explanations": {}, "global_explanation": None,
+        "dataset_generation": 0,
     }
-    </style>
-    <div class="watermark">A DK PRODUCT</div>
-    """,
-    unsafe_allow_html=True
-)
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+    pending = st.session_state.pop("pending_page", None)
+    if pending:
+        st.session_state.navigation = pending
 
 
-# MODEL ARTIFACT PATHS
-
-MODEL_PATH = "model_artifacts/final_xgboost_model.pkl"
-THRESHOLD_PATH = "model_artifacts/final_threshold.pkl"
-
-
-# FINAL DAY-1 TEST RESULTS (DYNAMIC LOAD)
-# The app will automatically load new metrics if they exist in metrics.json.
-# Otherwise, it falls back to our best run.
-
-import json
-METRICS_PATH = "model_artifacts/metrics.json"
-
+initialize_state()
 try:
-    with open(METRICS_PATH, 'r') as f:
-        metrics = json.load(f)
-        FINAL_PR_AUC = metrics.get('FINAL_PR_AUC', 0.0)
-        FINAL_ROC_AUC = metrics.get('FINAL_ROC_AUC', 0.0)
-        FINAL_PRECISION = metrics.get('FINAL_PRECISION', 0.0)
-        FINAL_RECALL = metrics.get('FINAL_RECALL', 0.0)
-        FINAL_F1 = metrics.get('FINAL_F1', 0.0)
-        FINAL_TN = metrics.get('FINAL_TN', 0)
-        FINAL_FP = metrics.get('FINAL_FP', 0)
-        FINAL_FN = metrics.get('FINAL_FN', 0)
-        FINAL_TP = metrics.get('FINAL_TP', 0)
-except FileNotFoundError:
-    # Fallback to our hardcoded best run
-    FINAL_PR_AUC = 0.7821
-    FINAL_ROC_AUC = 0.9713
-    FINAL_PRECISION = 0.7990
-    FINAL_RECALL = 0.7536
-    FINAL_F1 = 0.7756
-
-    FINAL_TN = 141612
-    FINAL_FP = 40
-    FINAL_FN = 52
-    FINAL_TP = 159
-
-
-# LOAD MODEL ARTIFACTS
-
-@st.cache_resource
-def load_artifacts():
-    """Load the final trained model and supporting artifacts."""
-
-    if not os.path.exists(MODEL_PATH):
-        raise FileNotFoundError(
-            f"Model file not found: {MODEL_PATH}"
-        )
-
-    if not os.path.exists(THRESHOLD_PATH):
-        raise FileNotFoundError(
-            f"Threshold file not found: {THRESHOLD_PATH}"
-        )
-
-    model = joblib.load(MODEL_PATH)
-    threshold = joblib.load(THRESHOLD_PATH)
-    feature_columns = list(model.feature_names_in_)
-
-    return model, float(threshold), feature_columns
-
-
-try:
-    model, threshold, feature_columns = load_artifacts()
-
-except Exception as e:
-    st.error(f"Could not load model artifacts: {e}")
+    bundle = cached_model(
+        file_digest(ARTIFACTS / "final_xgboost_model.pkl"),
+        file_digest(ARTIFACTS / "final_threshold.pkl"),
+    )
+except Exception as exc:
+    st.error(f"Could not load the original model artifacts: {exc}")
     st.stop()
+try:
+    support = cached_supporting(
+        file_digest(ARTIFACTS / "sentinel_assets.json"),
+        bundle.model_hash, bundle.threshold_hash, bundle,
+    )
+    support_error = None
+except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+    support, support_error = None, str(exc)
 
 
-# SHAP EXPLAINER
-
-@st.cache_resource
-def create_shap_explainer(_model):
-    """
-    Create SHAP TreeExplainer.
-
-    The leading underscore prevents Streamlit from trying
-    to hash the sklearn Pipeline.
-    """
-
-    xgb_model = _model.named_steps["model"]
-
-    return shap.TreeExplainer(xgb_model)
+def go(page):
+    st.session_state.pending_page = page
+    st.rerun()
 
 
-explainer = create_shap_explainer(model)
+def activate(analysis):
+    st.session_state.analysis = analysis
+    st.session_state.selected_position = None
+    st.session_state.walk_step = None
+    st.session_state.tour_complete = False
+    st.session_state.local_explanations = {}
+    st.session_state.global_explanation = None
+    st.session_state.dataset_generation += 1
+    st.session_state.upload_open = False
 
 
-# HELPER FUNCTIONS
-
-def prepare_input(df):
-    """
-    Prepare uploaded transaction data.
-
-    If Hour is absent, derive it from Time.
-    """
-
-    df = df.copy()
-
-    if "Hour" not in df.columns:
-
-        if "Time" in df.columns:
-
-            df["Hour"] = (
-                (df["Time"] // 3600) % 24
-            )
-
+def load_sample(walkthrough=False):
+    if support is None:
+        st.error("The verified sample assets are unavailable.")
+        return
+    try:
+        payload = SAMPLE_PATH.read_bytes()
+        if digest_bytes(payload) != support["sample_sha256"]:
+            raise ValueError("Sample integrity check failed. Regenerate the supporting assets.")
+        current = st.session_state.analysis
+        if current is None or current.dataset_id != support["sample_sha256"]:
+            with st.spinner("Scoring 1,000 real sample transactions with the saved model..."):
+                analysis = score_csv(payload, "Curated demonstration sample", bundle, support["sample_sha256"])
+            activate(analysis)
+        if walkthrough:
+            open_walk_step(0)
         else:
-
-            raise ValueError(
-                "The uploaded CSV must contain either "
-                "'Time' or 'Hour'."
-            )
-
-    return df
-
-
-def validate_input(df):
-    """Return required model features that are missing."""
-
-    return [
-        column
-        for column in feature_columns
-        if column not in df.columns
-    ]
-
-
-def validate_numeric(df):
-    """Return required features that are not numeric."""
-
-    return [
-        column
-        for column in feature_columns
-        if not pd.api.types.is_numeric_dtype(
-            df[column]
-        )
-    ]
-
-
-def score_transactions(df):
-    """Generate fraud probabilities and predictions."""
-
-    X = df[feature_columns]
-
-    probabilities = model.predict_proba(
-        X
-    )[:, 1]
-
-    predictions = (
-        probabilities >= threshold
-    ).astype(int)
-
-    results = df.copy()
-
-    results["fraud_probability"] = probabilities
-
-    results["fraud_prediction"] = np.where(
-        predictions == 1,
-        "Fraud",
-        "Legitimate"
-    )
-
-    return results
-
-
-# SESSION STATE
-
-if "input_df" not in st.session_state:
-    st.session_state.input_df = None
-
-if "results" not in st.session_state:
-    st.session_state.results = None
-
-if "uploaded_filename" not in st.session_state:
-    st.session_state.uploaded_filename = None
-
-
-# HEADER
-
-st.title("💳 Credit Card Fraud Detection")
-
-st.markdown(
-    """
-    ### Tuned XGBoost Fraud Detection System
-
-    Analyze credit card transactions using a tuned XGBoost
-    model with threshold optimization and SHAP-based
-    explainability.
-    """
-)
-
-st.divider()
-
-
-# SIDEBAR
-
-st.sidebar.header("Navigation")
-
-page = st.sidebar.radio(
-    "Go to",
-    [
-        "Fraud Detection",
-        "Model Performance",
-        "Explainability",
-    ]
-)
-
-
-st.sidebar.divider()
-
-st.sidebar.header("Model Configuration")
-
-st.sidebar.metric(
-    "Decision Threshold",
-    f"{threshold:.2f}"
-)
-
-st.sidebar.write(
-    "Transactions with a predicted fraud probability "
-    "greater than or equal to this threshold are flagged."
-)
-
-st.sidebar.divider()
-
-st.sidebar.write("**Model:** Tuned XGBoost")
-st.sidebar.write("**Primary metric:** PR-AUC")
-st.sidebar.write("**Validation:** Temporal + group-aware CV")
-
-st.sidebar.divider()
-
-st.sidebar.caption(
-    "V1–V28 are anonymized PCA-derived features from "
-    "the original dataset."
-)
-
-
-# PAGE 1 — FRAUD DETECTION
-
-if page == "Fraud Detection":
-
-    st.header("1. Upload Transactions")
-
-    st.markdown(
-        """
-        Upload the original credit card dataset. The application
-        will automatically derive `Hour` from `Time`.
-        """
-    )
-
-    uploaded_file = st.file_uploader(
-        "Upload CSV",
-        type=["csv"],
-        help=(
-            "The CSV should contain V1–V28, Amount, and Time "
-            "or Hour."
-        )
-    )
-
-
-    # Process uploaded file
-
-    if uploaded_file is not None:
-
-        # Only reprocess when a new file is uploaded
-        if (
-            st.session_state.uploaded_filename
-            != uploaded_file.name
-        ):
-
-            try:
-
-                input_df = pd.read_csv(
-                    uploaded_file
-                )
-
-            except Exception as e:
-
-                st.error(
-                    f"Could not read CSV: {e}"
-                )
-
-                st.stop()
-
-
-            # ---------------------------------------------
-            # Prepare
-            # ---------------------------------------------
-
-            try:
-
-                input_df = prepare_input(
-                    input_df
-                )
-
-            except Exception as e:
-
-                st.error(str(e))
-                st.stop()
-
-
-            # ---------------------------------------------
-            # Validate columns
-            # ---------------------------------------------
-
-            missing_columns = validate_input(
-                input_df
-            )
-
-            if missing_columns:
-
-                st.error(
-                    "The uploaded CSV is missing "
-                    "required model features:"
-                )
-
-                st.write(
-                    missing_columns
-                )
-
-                st.stop()
-
-
-            # ---------------------------------------------
-            # Validate numeric features
-            # ---------------------------------------------
-
-            non_numeric_columns = validate_numeric(
-                input_df
-            )
-
-            if non_numeric_columns:
-
-                st.error(
-                    "These model features must be numeric:"
-                )
-
-                st.write(
-                    non_numeric_columns
-                )
-
-                st.stop()
-
-
-            # ---------------------------------------------
-            # Validate missing values
-            # ---------------------------------------------
-
-            missing_values = (
-                input_df[
-                    feature_columns
-                ]
-                .isna()
-                .sum()
-            )
-
-            columns_with_missing = (
-                missing_values[
-                    missing_values > 0
-                ]
-            )
-
-
-            if len(columns_with_missing) > 0:
-
-                st.error(
-                    "The uploaded data contains "
-                    "missing values in:"
-                )
-
-                st.write(
-                    columns_with_missing
-                )
-
-                st.stop()
-
-
-            # ---------------------------------------------
-            # Score dataset
-            # ---------------------------------------------
-
-            try:
-
-                results = score_transactions(
-                    input_df
-                )
-
-            except Exception as e:
-
-                st.error(
-                    f"Could not generate predictions: {e}"
-                )
-
-                st.stop()
-
-
-            # ---------------------------------------------
-            # Save in session state
-            # ---------------------------------------------
-
-            st.session_state.input_df = input_df
-
-            st.session_state.results = results
-
-            st.session_state.uploaded_filename = (
-                uploaded_file.name
-            )
-
-
-            st.success(
-                f"Successfully loaded "
-                f"{len(input_df):,} transactions."
-            )
-
-            st.info(
-                "The dataset has been processed and is now "
-                "available throughout the dashboard."
-            )
-
-
-    # Check whether data exists
-
-    results = st.session_state.results
-
-
-    if results is None:
-
-        st.info(
-            "Upload a transaction CSV above to begin."
-        )
-
-        st.subheader(
-            "Expected model features"
-        )
-
-        st.code(
-            ", ".join(feature_columns)
-        )
-
-        st.stop()
-
-
-    # SUMMARY
-
-    st.header("2. Detection Summary")
-
-
-    total_transactions = len(
-        results
-    )
-
-
-    fraud_count = (
-        results["fraud_prediction"]
-        == "Fraud"
-    ).sum()
-
-
-    legitimate_count = (
-        results["fraud_prediction"]
-        == "Legitimate"
-    ).sum()
-
-
-    flag_rate = (
-        fraud_count / total_transactions
-        if total_transactions > 0
-        else 0
-    )
-
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        st.metric("Transactions", f"{total_transactions:,}")
-
-    with col2:
-        st.metric("Flagged as Fraud", f"{fraud_count:,}")
-
-    with col3:
-        st.metric("Legitimate", f"{legitimate_count:,}")
-
-    with col4:
-        st.metric("Flag Rate", f"{flag_rate:.2%}")
-
-    with st.expander("What does this mean?", expanded=False):
-        st.write(f"Out of the **{total_transactions:,}** uploaded transactions, the system has frozen **{fraud_count:,}** accounts due to suspicious activity. The remaining **{legitimate_count:,}** accounts have been cleared for processing.")
-
-
-    # PROBABILITY DISTRIBUTION
-
-    st.subheader(
-        "Fraud Probability Distribution"
-    )
-
-
-    fig, ax = plt.subplots(
-        figsize=(10, 4)
-    )
-
-
-    ax.hist(
-        results["fraud_probability"],
-        bins=40
-    )
-
-
-    ax.axvline(
-        threshold,
-        linestyle="--",
-        label=f"Threshold = {threshold:.2f}"
-    )
-
-
-    ax.set_xlabel(
-        "Predicted Fraud Probability"
-    )
-
-    ax.set_ylabel(
-        "Number of Transactions"
-    )
-
-    ax.set_title(
-        "Distribution of Fraud Risk Scores"
-    )
-
-    ax.legend()
-
-    plt.tight_layout()
-
-
-    st.pyplot(fig, clear_figure=True)
-
-    with st.expander("What does this mean?", expanded=False):
-        st.write(f"This chart shows how 'confident' the AI is. Most transactions are piled up on the far left (Safe). The system automatically blocks any transaction that crosses the **{threshold*100:.0f}%** danger threshold.")
-
-
-    # RESULTS TABLE
-
-    st.header("3. Detection Results")
-
-
-    display_columns = []
-
-
-    if "Time" in results.columns:
-
-        display_columns.append(
-            "Time"
-        )
-
-
-    if "Amount" in results.columns:
-
-        display_columns.append(
-            "Amount"
-        )
-
-
-    display_columns.extend(
-        [
-            "fraud_probability",
-            "fraud_prediction",
-        ]
-    )
-
-
-    display_df = results[
-        display_columns
-    ].copy()
-
-
-    display_df[
-        "fraud_probability"
-    ] = (
-        display_df[
-            "fraud_probability"
-        ]
-        .map(
-            lambda x: f"{x:.2%}"
-        )
-    )
-
-
-    st.dataframe(
-        display_df,
-        use_container_width=True,
-        height=450
-    )
-
-
-    # DOWNLOAD
-
-    st.subheader(
-        "Download Predictions"
-    )
-
-
-    download_csv = results.to_csv(
-        index=False
-    )
-
-
+            go("Overview")
+    except (OSError, ValueError) as exc:
+        st.error(str(exc))
+
+
+def open_walk_step(index):
+    analysis = st.session_state.analysis
+    case = support["walkthrough"][index]
+    labels, _ = get_labels(analysis.raw)
+    position = case["position"]
+    if (
+        not analysis.curated or analysis.dataset_id != support["sample_sha256"]
+        or labels is None or labels[position] != case["label"]
+        or bool(analysis.flags[position]) != case["flagged"]
+        or not np.isclose(analysis.scores[position], case["score"], rtol=1e-6)
+    ):
+        raise ValueError("The walkthrough case does not match the verified model and sample.")
+    st.session_state.walk_step = index
+    st.session_state.selected_position = position
+    st.session_state.tour_complete = False
+    go("Investigation Workspace")
+
+
+def inspect(position):
+    st.session_state.selected_position = int(position)
+    st.session_state.walk_step = None
+    go("Investigation Workspace")
+
+
+def show_figure(fig):
+    st.pyplot(fig, width="stretch")
+    plt.close(fig)
+
+
+def metric_value(value, percent=False):
+    if value is None:
+        return "Unavailable"
+    return f"{value:.2%}" if percent else f"{value:.4f}"
+
+
+def show_metrics(metrics):
+    for column, key, label, percent in zip(
+        st.columns(5),
+        ["average_precision", "roc_auc", "precision", "recall", "f1"],
+        ["PR-AUC (AP)", "ROC-AUC", "Precision", "Recall", "F1"],
+        [False, False, True, True, False],
+    ):
+        column.metric(label, metric_value(metrics[key], percent))
+
+
+def latest():
+    analysis = st.session_state.analysis
+    return latest_decisions(st.session_state.audit_events, analysis.dataset_id) if analysis else {}
+
+
+def download_audit(key):
+    events = st.session_state.audit_events
     st.download_button(
-        label="⬇️ Download Scored Transactions",
-        data=download_csv,
-        file_name="fraud_detection_results.csv",
-        mime="text/csv"
+        "Download decision history (CSV)", audit_export(events),
+        file_name="sentinel_investigation_history.csv", mime="text/csv",
+        disabled=not events, key=key,
     )
+    st.caption("Includes all datasets reviewed in this session. Timestamps are labeled UTC. Download before leaving; session history is temporary.")
 
 
-# PAGE 2 — MODEL PERFORMANCE
-
-elif page == "Model Performance":
-
-    st.header(
-        "📊 Model Performance"
-    )
-
-
-    st.markdown(
-        """
-        Final performance of the tuned XGBoost model on the
-        untouched Day-1 test set.
-        """
-    )
-
-
-    # MAIN METRICS
-
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1: st.metric("PR-AUC", f"{FINAL_PR_AUC:.4f}")
-    with col2: st.metric("ROC-AUC", f"{FINAL_ROC_AUC:.4f}")
-    with col3: st.metric("Precision", f"{FINAL_PRECISION:.2%}")
-    with col4: st.metric("Recall", f"{FINAL_RECALL:.2%}")
-    with col5: st.metric("F1 Score", f"{FINAL_F1:.4f}")
-    
-    with st.expander("What does this mean?", expanded=False):
-        st.markdown(f"""
-        - **PR-AUC ({FINAL_PR_AUC:.4f})**: The ultimate score for imbalanced data. A score closer to 1.0 means the AI is incredible at hunting fraudsters without accidentally freezing innocent customers' cards.
-        - **ROC-AUC ({FINAL_ROC_AUC:.4f})**: Measures the AI's general ability to tell the difference between a thief and a legitimate customer. 
-        - **What's the difference?**: ROC-AUC grades the model on *everything* (including how easily it identifies the 99.8% of innocent people, which makes the score look artificially high). PR-AUC is much stricter—it only grades the model on how well it catches the tiny fraction of actual thieves. For fraud detection, PR-AUC is the true test! 
-        - **Precision ({FINAL_PRECISION:.2%})**: When this model blocks a credit card, there is an **{FINAL_PRECISION:.2%}** chance they are a thief, and a **{1-FINAL_PRECISION:.2%}** chance they are an innocent customer.
-        - **Recall ({FINAL_RECALL:.2%})**: Out of all the actual thieves in the dataset, the system successfully caught **{FINAL_RECALL:.2%}** of them. **{1-FINAL_RECALL:.2%}** managed to slip through.
-        """)
-
-
-    st.divider()
-
-
-    # CONFUSION MATRIX
-
-    st.subheader(
-        "Confusion Matrix"
-    )
-
-
-    confusion_df = pd.DataFrame(
-        [
-            [FINAL_TN, FINAL_FP],
-            [FINAL_FN, FINAL_TP],
-        ],
-        index=[
-            "Actual Legitimate",
-            "Actual Fraud",
-        ],
-        columns=[
-            "Predicted Legitimate",
-            "Predicted Fraud",
-        ]
-    )
-
-
-    st.dataframe(
-        confusion_df,
-        use_container_width=True
-    )
-
-
-    with st.expander("What does this mean?", expanded=False):
-        st.write(f"The model successfully caught **{FINAL_TP}** thieves, but missed **{FINAL_FN}**. It safely processed **{FINAL_TN:,}** legitimate transactions, but accidentally froze the credit cards of **{FINAL_FP}** innocent people.")
-
-
-    # THRESHOLD
-
-    st.subheader(
-        "Decision Threshold"
-    )
-
-
-    st.metric(
-        "Selected Threshold",
-        f"{threshold:.2f}"
-    )
-
-
-    st.write(
-        f"""
-        At this threshold, the final Day-1 test performance
-        was **{FINAL_PRECISION:.2%} precision** and
-        **{FINAL_RECALL:.2%} recall**.
-        """
-    )
-
-
-    st.caption(
-        "The threshold was selected using out-of-fold "
-        "development predictions and then evaluated once "
-        "on the untouched Day-1 test set."
-    )
-
-
-    # MODEL COMPARISON
-
-    st.subheader(
-        "Model Comparison"
-    )
-
-
-    comparison_df = pd.DataFrame({
-        "Model": [
-            "Logistic Regression",
-            "XGBoost Baseline",
-            "XGBoost Tuned",
-        ],
-        "PR-AUC": [
-            0.7559,
-            0.7761,
-            FINAL_PR_AUC,
-        ],
-        "Precision": [
-            0.0363,
-            0.5364,
-            FINAL_PRECISION,
-        ],
-        "Recall": [
-            0.8806,
-            0.8060,
-            FINAL_RECALL,
-        ],
-        "F1": [
-            0.0698,
-            0.6441,
-            FINAL_F1,
-        ],
-    })
-
-
-    st.dataframe(
-        comparison_df,
-        use_container_width=True,
-        hide_index=True
-    )
-
-
-# PAGE 3 — EXPLAINABILITY
-
-elif page == "Explainability":
-
-    st.header(
-        "🔎 Model Explainability"
-    )
-
-
-    st.markdown(
-        """
-        SHAP explains how individual features influence the
-        model's predictions.
-
-        The transaction dataset is shared automatically from
-        the Fraud Detection page — no second upload is needed.
-        """
-    )
-
-
-    # CHECK FOR UPLOADED DATA
-
-    results = st.session_state.results
-    input_df = st.session_state.input_df
-
-
-    if results is None or input_df is None:
-
-        st.info(
-            "No transaction dataset is loaded yet."
+def input_controls(page):
+    analysis = st.session_state.analysis
+    expanded = st.session_state.upload_open or (page == "Transaction Explorer" and analysis is None)
+    with st.expander("Load your transactions", expanded=expanded):
+        st.write("Use transactions in the original dataset's anonymized PCA feature space.")
+        st.caption(
+            "Required: V1–V28, Amount, and Time (elapsed seconds) or Hour (0–23). "
+            "Class is optional. Matching column names alone does not guarantee the same PCA representation. "
+            "Limits: 200 MB and 300,000 rows."
         )
+        upload = st.file_uploader("Compatible transaction CSV", type=["csv"], max_upload_size=200, key="csv_upload")
+        action, sample_action = st.columns([1, 2])
+        if action.button("Validate and analyze", type="primary", disabled=upload is None, key="analyze_upload"):
+            payload = upload.getvalue()
+            current = st.session_state.analysis
+            if current is not None and current.dataset_id == digest_bytes(payload):
+                st.info("This exact file is already loaded.")
+            else:
+                try:
+                    with st.spinner("Validating and scoring transactions..."):
+                        candidate = score_csv(payload, upload.name, bundle, support["sample_sha256"] if support else None)
+                    activate(candidate)
+                    go("Overview")
+                except Exception as exc:
+                    st.error(f"Upload could not be analyzed: {exc}")
+                    if current is not None:
+                        st.info("Your previous dataset remains active. Its name is shown above.")
+        if sample_action.button("Use the curated sample", disabled=support is None, key="sample_in_upload"):
+            load_sample()
+        st.caption("A successful load replaces the active analysis and resets its filters. Earlier decision history stays in this session.")
 
+
+def overview():
+    analysis = st.session_state.analysis
+    if analysis is None:
+        st.markdown('<div class="eyebrow">EXPLAINABLE CREDIT CARD FRAUD INTELLIGENCE</div>', unsafe_allow_html=True)
+        st.title("Follow the signal. Understand the decision.")
+        st.markdown(
+            '<p class="hero-copy">Explore real anonymized transactions, investigate model alerts, '
+            'and see where machine learning succeeds—and where it needs human judgment.</p>',
+            unsafe_allow_html=True,
+        )
+        start, sample, upload = st.columns([1.5, 1, 1])
+        if start.button("Load Sample and Start Walkthrough", type="primary", width="stretch", disabled=support is None):
+            load_sample(walkthrough=True)
+        if sample.button("Load Sample Dataset", width="stretch", disabled=support is None):
+            load_sample()
+        if upload.button("Upload Transactions", width="stretch"):
+            st.session_state.upload_open = True
+            go("Transaction Explorer")
+        st.caption(SAMPLE_NOTICE)
+        for column, number, title, text in zip(
+            st.columns(3), ["01", "02", "03"],
+            ["Explore real cases", "Understand the evidence", "Make a review decision"],
+            [
+                "Start with a successful detection, then examine a false alarm and a missed fraud.",
+                "Connect a saved model score to SHAP contributions and legitimate-training reference data.",
+                "Record a simulated analyst outcome, export your findings, and explore the learning notebook.",
+            ],
+        ):
+            column.markdown(
+                f'<div class="step"><div class="step-num">{number}</div>'
+                f'<div class="step-title">{title}</div><div class="step-copy">{text}</div></div>',
+                unsafe_allow_html=True,
+            )
+        st.divider()
+        st.subheader("Built on a documented ML learning journey")
         st.write(
-            "Go to **Fraud Detection** and upload your CSV. "
-            "Once uploaded, the same dataset will be "
-            "available here automatically."
+            "The notebook records data exploration, baseline models, validation experiments, "
+            "XGBoost tuning, threshold selection, and explainability—including unsuccessful attempts."
         )
+        left, right = st.columns([1, 3])
+        if left.button("Explore Model Intelligence", width="stretch"):
+            go("Model Intelligence")
+        right.link_button("Read the learning notebook ↗", NOTEBOOK_URL)
+        return
 
-        st.stop()
-
-
-    # GLOBAL SHAP
-
-    st.subheader(
-        "Global Feature Importance"
-    )
-
-
-    st.caption(
-        "Mean absolute SHAP value across a sample of "
-        "uploaded transactions."
-    )
-
-
-    # Use up to 10,000 rows so the dashboard remains responsive.
-    sample_size = min(
-        len(input_df),
-        10000
-    )
-
-
-    shap_input = input_df[
-        feature_columns
-    ].sample(
-        sample_size,
-        random_state=42
-    )
-
-
-    prep = model.named_steps[
-        "preprocessor"
-    ]
-
-
-    transformed_data = prep.transform(
-        shap_input
-    )
-
-
-    shap_values = explainer.shap_values(
-        transformed_data
-    )
-
-
-    transformed_feature_names = (
-        prep.get_feature_names_out()
-    )
-
-
-    shap_importance = pd.DataFrame({
-        "Feature": transformed_feature_names,
-        "Mean Absolute SHAP": (
-            np.abs(shap_values)
-            .mean(axis=0)
+    st.title("Overview")
+    st.caption("Your active analysis, model alerts, and investigation progress.")
+    decisions = latest()
+    columns = st.columns(4)
+    columns[0].metric("Transactions analyzed", f"{len(analysis.raw):,}")
+    columns[1].metric("Flagged for review", f"{int(analysis.flags.sum()):,}")
+    columns[2].metric("Flag rate", f"{analysis.flags.mean():.2%}")
+    columns[3].metric("Reviewed", f"{len(decisions):,} / {len(analysis.raw):,}")
+    st.caption("Flagged means the model score meets the saved threshold. A review decision is a separate human record.")
+    chart, guide = st.columns([2, 1])
+    with chart:
+        st.subheader("Risk score distribution")
+        show_figure(risk_distribution(analysis.scores, bundle.threshold))
+    with guide:
+        with st.container(border=True):
+            st.subheader("Three cases. Three lessons.")
+            st.write("Walk through a correct detection, a false alarm, and a missed fraud from the curated sample.")
+            if st.button("Start the 3-case walkthrough", type="primary", disabled=support is None, width="stretch"):
+                load_sample(walkthrough=True)
+            st.caption("Loads the curated sample. All three cases use real labels and current model scores.")
+            if st.button("Open Transaction Explorer", width="stretch"):
+                go("Transaction Explorer")
+    st.subheader("Highest-scoring alerts")
+    alerts = result_table(analysis, decisions)
+    alerts = alerts.loc[analysis.flags].sort_values("Risk score", ascending=False).head(10)
+    if alerts.empty:
+        st.info("No transactions meet the saved threshold in this dataset.")
+    else:
+        selection = st.dataframe(
+            alerts[["Row ID", "Amount", "Risk score", "Model result", "Review"]].reset_index(drop=True),
+            hide_index=True, width="stretch", on_select="rerun", selection_mode="single-row",
+            column_config={"Risk score": st.column_config.ProgressColumn("Risk score", min_value=0, max_value=1, format="%.3f")},
+            key=f"alert_selection_{st.session_state.dataset_generation}",
         )
-    })
-
-
-    shap_importance = (
-        shap_importance
-        .sort_values(
-            "Mean Absolute SHAP",
-            ascending=False
+        selected = selection.selection.rows
+        if st.button("Investigate selected alert", disabled=not selected, key="inspect_alert"):
+            inspect(alerts.iloc[selected[0]]["_position"])
+    st.caption("TXN IDs are temporary row references generated by this app, not bank-issued identifiers.")
+    with st.expander("Export the active analysis"):
+        st.download_button(
+            "Download scored transactions (CSV)", scored_export(analysis, bundle.threshold, decisions),
+            file_name="sentinel_scored_transactions.csv", mime="text/csv", key="overview_export",
         )
+        download_audit("overview_audit")
+
+def explorer():
+    st.title("Transaction Explorer")
+    st.caption("Filter the active dataset, select a row, and follow its evidence.")
+    analysis = st.session_state.analysis
+    if analysis is None:
+        st.info("Load the curated sample or upload a compatible CSV above to begin.")
+        return
+    table = result_table(analysis, latest())
+    token = f"{st.session_state.dataset_generation}"
+    a, b, c, d = st.columns([1.2, 1, 1, 1.5])
+    search = a.text_input("Search row ID", placeholder="TXN-000042", key=f"filter_search_{token}")
+    prediction = b.selectbox("Model result", ["All", "Flagged", "Not flagged"], key=f"filter_model_{token}")
+    review = c.selectbox("Review status", ["All", "Unreviewed", *DECISIONS], key=f"filter_review_{token}")
+    score_range = d.slider("Risk score (%)", 0.0, 100.0, (0.0, 100.0), step=.1, key=f"filter_score_{token}")
+    with st.expander("Amount and time filters"):
+        low, high, period = st.columns(3)
+        min_amount = low.number_input("Minimum amount", min_value=0.0, value=0.0, key=f"filter_min_{token}")
+        max_amount = high.number_input("Maximum amount", min_value=0.0, value=float(table["Amount"].max()), key=f"filter_max_{token}")
+        hours = period.slider("Elapsed-cycle hour", 0, 23, (0, 23), key=f"filter_hour_{token}")
+        if "Elapsed seconds" in table:
+            start_col, end_col = st.columns(2)
+            min_time = start_col.number_input("From elapsed seconds", min_value=0.0, value=0.0, key=f"filter_time_min_{token}")
+            max_time = end_col.number_input("To elapsed seconds", min_value=0.0, value=float(table["Elapsed seconds"].max()), key=f"filter_time_max_{token}")
+        st.caption("Time is elapsed seconds from the source dataset's first transaction; Hour is not a verified wall-clock hour.")
+    mask = (
+        table["Row ID"].str.contains(search.strip(), case=False, regex=False)
+        & table["Risk score"].between(score_range[0] / 100, score_range[1] / 100)
+        & table["Amount"].between(min_amount, max_amount)
+        & table["Hour"].between(*hours)
     )
-
-
-    # Plot top 15
-
-    top_features = (
-        shap_importance
-        .head(15)
-        .sort_values(
-            "Mean Absolute SHAP"
+    if prediction != "All":
+        mask &= table["Model result"].eq(prediction)
+    if review != "All":
+        mask &= table["Review"].eq(review)
+    if "Elapsed seconds" in table:
+        mask &= table["Elapsed seconds"].between(min_time, max_time)
+    filtered = table.loc[mask].sort_values("Risk score", ascending=False, kind="stable")
+    st.caption(f"{len(filtered):,} of {len(table):,} transactions · scores shown from 0 to 1 · highest first")
+    if filtered.empty:
+        st.info("No transactions match these filters. Widen the ranges or clear the search.")
+    else:
+        visible = filtered.drop(columns="_position").reset_index(drop=True)
+        # Clear positional selections when filters change; preserve original row identity.
+        filter_id = digest_bytes(filtered["_position"].to_numpy().tobytes())[:12]
+        selection = st.dataframe(
+            visible, hide_index=True, width="stretch", height=420,
+            on_select="rerun", selection_mode="single-row", key=f"explorer_selection_{token}_{filter_id}",
+            column_config={
+                "Risk score": st.column_config.ProgressColumn("Risk score", min_value=0, max_value=1, format="%.4f"),
+                "Amount": st.column_config.NumberColumn("Amount", format="%.2f"),
+                "Hour": st.column_config.NumberColumn("Elapsed-cycle hour", format="%d"),
+            },
         )
-    )
-
-
-    fig, ax = plt.subplots(
-        figsize=(10, 7)
-    )
-
-
-    ax.barh(
-        top_features["Feature"],
-        top_features["Mean Absolute SHAP"]
-    )
-
-
-    ax.set_xlabel(
-        "Mean Absolute SHAP Value"
-    )
-
-
-    ax.set_ylabel(
-        "Feature"
-    )
-
-
-    ax.set_title(
-        "Top Features Driving Model Predictions"
-    )
-
-
-    plt.tight_layout()
-
-
-    st.pyplot(fig, clear_figure=True)
-
-    with st.expander("What does this mean?", expanded=False):
-        st.write("What does the AI care about the most? This chart ranks the data points by importance. The features at the top (like V14 and V4) are the biggest red flags the AI looks for when hunting fraud.")
-
-
-    # Importance table
-
-    st.dataframe(
-        shap_importance.head(15),
-        use_container_width=True,
-        hide_index=True
-    )
-
-
-    # INDIVIDUAL TRANSACTION
-
+        selected = selection.selection.rows
+        if st.button("Investigate selected transaction", type="primary", disabled=not selected, key="inspect_explorer"):
+            inspect(filtered.iloc[selected[0]]["_position"])
+    st.caption("Generated row IDs stay attached to their original input row through sorting and filtering.")
     st.divider()
-
-    st.subheader(
-        "Individual Transaction Explanation"
+    st.download_button(
+        "Download all scored transactions (CSV)", scored_export(analysis, bundle.threshold, latest()),
+        file_name="sentinel_scored_transactions.csv", mime="text/csv", key="explorer_export",
     )
+    st.caption("Exports the complete active dataset, including provenance. Filters only affect the on-screen view.")
 
 
-    selected_index = st.selectbox(
-        "Select a transaction to explain",
-
-        options=list(
-            results.index
-        ),
-
-        format_func=lambda x: (
-            f"Row {x} — "
-            f"{results.loc[x, 'fraud_prediction']} — "
-            f"{results.loc[x, 'fraud_probability']:.2%}"
-        )
-    )
+WALK_TEXT = [
+    "The model flagged this transaction and the dataset labels it as fraud. Inspect the strongest contributors below to see which features raised or lowered its score.",
+    "The model flagged this transaction, but the dataset labels it as legitimate. A strong model score can still be a false alarm; inspect the evidence before recording a simulated review outcome.",
+    "The dataset labels this transaction as fraud, but its score is below the saved threshold. The model missed it. This case makes the precision–recall tradeoff and the limits of model detection tangible.",
+]
 
 
-    selected_input = input_df.loc[
-        [selected_index],
-        feature_columns
-    ]
-
-
-    selected_probability = (
-        results.loc[
-            selected_index,
-            "fraud_probability"
-        ]
-    )
-
-
-    selected_prediction = (
-        results.loc[
-            selected_index,
-            "fraud_prediction"
-        ]
-    )
-
-
-    col1, col2 = st.columns(2)
-
-
-    with col1:
-
-        st.metric(
-            "Fraud Probability",
-            f"{selected_probability:.2%}"
-        )
-
-
-    with col2:
-
-        if selected_prediction == "Fraud":
-
-            st.error(
-                "🚨 FRAUD"
+def investigation():
+    st.title("Investigation Workspace")
+    analysis = st.session_state.analysis
+    position = st.session_state.selected_position
+    if analysis is None or position is None:
+        st.info("Select a transaction in the Explorer, or start the guided walkthrough.")
+        left, right = st.columns(2)
+        if left.button("Go to Transaction Explorer", width="stretch"):
+            go("Transaction Explorer")
+        if right.button("Load Sample and Start Walkthrough", type="primary", disabled=support is None, width="stretch"):
+            load_sample(walkthrough=True)
+        return
+    if not 0 <= position < len(analysis.raw):
+        st.error("The selected row is no longer available. Select another transaction.")
+        return
+    step = st.session_state.walk_step
+    if step is not None:
+        case = support["walkthrough"][step]
+        with st.container(border=True):
+            st.caption(f"GUIDED WALKTHROUGH · CASE {step + 1} OF 3")
+            st.subheader(case["title"])
+            st.write(WALK_TEXT[step])
+            previous, next_case, exit_case = st.columns(3)
+            if previous.button("Previous case", disabled=step == 0, key="walk_previous", width="stretch"):
+                open_walk_step(step - 1)
+            next_label = "Next case" if step < 2 else "Finish walkthrough"
+            if next_case.button(next_label, type="primary", key="walk_next", width="stretch"):
+                if step < 2:
+                    open_walk_step(step + 1)
+                st.session_state.walk_step = None
+                st.session_state.tour_complete = True
+                go("Model Intelligence")
+            if exit_case.button("Exit walkthrough", key="walk_exit", width="stretch"):
+                st.session_state.walk_step = None
+                st.rerun()
+    row_id = analysis.row_ids[position]
+    score = float(analysis.scores[position])
+    flagged = bool(analysis.flags[position])
+    st.subheader(row_id)
+    st.caption(f"Generated reference for input data row {position + 1:,}.")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Risk score", f"{score:.2%}")
+    col2.metric("Model result", "Flagged" if flagged else "Not flagged")
+    col3.metric("Saved threshold", repr(bundle.threshold))
+    col4.metric("Amount", f"{float(analysis.features.iloc[position]['Amount']):,.2f}")
+    st.caption("A model score is not a verified probability of fraud. Flagging uses the unrounded score and saved threshold.")
+    labels, label_error = get_labels(analysis.raw)
+    if labels is not None:
+        label = "Fraud" if labels[position] else "Legitimate"
+        st.info(f"Known dataset label: {label}. This label is separate from the model result and your analyst decision.")
+    elif "Class" in analysis.raw:
+        st.warning(label_error)
+    cache_key = (analysis.dataset_id, int(position), bundle.model_hash)
+    try:
+        if cache_key not in st.session_state.local_explanations:
+            with st.spinner("Explaining this transaction using the fitted feature order..."):
+                explainer = cached_explainer(bundle.model_hash, bundle.model)
+                transformed, values = explanation_values(bundle, explainer, analysis.features.iloc[[position]])
+                cache = st.session_state.local_explanations
+                if len(cache) >= 100:
+                    cache.pop(next(iter(cache)))
+                cache[cache_key] = (transformed[0], values[0], float(explainer.expected_value))
+        transformed, values, base = st.session_state.local_explanations[cache_key]
+        order = np.argsort(np.abs(values))[::-1]
+        st.subheader("What influenced the model?")
+        up = [bundle.output_features[i] for i in order if values[i] > 0][:2]
+        down = [bundle.output_features[i] for i in order if values[i] < 0][:2]
+        parts = []
+        if up:
+            parts.append("Strongest upward contributors: " + ", ".join(up) + ".")
+        if down:
+            parts.append("Strongest downward contributors: " + ", ".join(down) + ".")
+        st.write(" ".join(parts))
+        st.caption("V1–V28 are anonymized features. Their real-world behavioral meanings are unknown; SHAP describes model contributions, not causes.")
+        with st.expander("Detailed SHAP explanation", expanded=step is not None):
+            explanation = shap.Explanation(
+                values=values, base_values=base, data=transformed, feature_names=bundle.output_features,
             )
-
+            show_figure(waterfall_figure(explanation))
+            st.caption(
+                "Bars add to the model's raw log-odds, not percentage-point changes. "
+                "Amount and Hour values in this plot are transformed by the fitted scaler."
+            )
+        if support is not None:
+            st.subheader("Context from legitimate training transactions")
+            top_features = [bundle.output_features[i] for i in order[:5]]
+            show_figure(reference_comparison(
+                analysis.features.iloc[position], top_features, support["reference"],
+            ))
+            st.caption(
+                f"Reference: {support['reference_rows']:,} legitimate training rows only. "
+                "Thin line: 1st–99th percentiles · thick band: 25th–75th · white mark: median · pink diamond: this transaction. "
+                "Each axis uses that feature's raw values. Unusual values are descriptive context, not proof of fraud."
+            )
+    except Exception as exc:
+        st.error(f"The explanation could not be generated: {exc}")
+        st.caption("The model score and analyst review remain available.")
+    st.divider()
+    st.subheader("Record a simulated review")
+    st.caption("Approve, Escalate, and Block only record your judgment. They do not move money, freeze cards, change labels, or retrain the model.")
+    existing = latest_records(st.session_state.audit_events, analysis.dataset_id).get(row_id)
+    form_token = f"{analysis.dataset_id[:16]}_{position}"
+    if existing:
+        st.caption(f"Latest decision: {existing['decision']} · revision {existing['revision']}")
+    with st.form(f"review_form_{form_token}"):
+        decision = st.radio(
+            "Analyst decision", DECISIONS, horizontal=True,
+            index=DECISIONS.index(existing["decision"]) if existing else 1, key=f"decision_{form_token}",
+        )
+        notes = st.text_area(
+            "Investigator notes", value=existing["notes"] if existing else "",
+            placeholder="What did you observe? What would you investigate next?",
+            max_chars=4000, key=f"notes_{form_token}",
+        )
+        if st.form_submit_button("Save simulated decision", type="primary"):
+            st.session_state.audit_events = append_decision(
+                st.session_state.audit_events, analysis, position, bundle.threshold, decision, notes,
+            )
+            st.success("Decision saved for this session. The model output is unchanged.")
+    with st.expander("Decision history and export", expanded=bool(st.session_state.audit_events)):
+        events = st.session_state.audit_events
+        if events:
+            st.dataframe(
+                audit_frame(events)[["dataset_source", "row_id", "model_result", "decision", "notes", "timestamp_utc", "revision"]],
+                hide_index=True, width="stretch",
+            )
         else:
+            st.caption("No decisions recorded yet.")
+        download_audit("investigation_audit")
+    with st.expander("Original transaction values"):
+        st.dataframe(analysis.raw.iloc[[position]], hide_index=True, width="stretch")
+    if st.button("Back to Transaction Explorer"):
+        go("Transaction Explorer")
 
-            st.success(
-                "✅ LEGITIMATE"
+def intelligence():
+    st.title("Model Intelligence")
+    st.caption("The experiments, benchmark, and limitations behind this application.")
+    if st.session_state.tour_complete:
+        st.success("Walkthrough complete: you explored a successful detection, a false alarm, and a missed fraud. Follow the notebook to see how the model was developed.")
+    st.link_button("Open the complete learning notebook ↗", NOTEBOOK_URL, type="primary")
+    with st.expander("The learning journey", expanded=True):
+        st.write(
+            "**Data quality and exploration → preprocessing → baseline models → "
+            "validation experiments → XGBoost tuning → threshold selection → SHAP.**"
+        )
+        st.write(
+            "The notebook preserves the original experiments, including the first tuning attempt "
+            "and the later switch to GroupKFold. The application uses the original saved model; "
+            "reference comparisons and analyst records are application additions."
+        )
+    st.subheader("Historical benchmark")
+    st.caption("Fixed results on the original 141,863-row test partition. These are independent of the active upload or curated sample.")
+    try:
+        metrics = benchmark_metrics()
+        show_metrics(metrics)
+        matrix, context = st.columns([1, 1.2])
+        with matrix:
+            show_figure(confusion_figure(metrics))
+        with context:
+            st.write(
+                f"The model flagged **{metrics['tp'] + metrics['fp']:,}** test transactions: "
+                f"**{metrics['tp']:,}** were labeled fraud and **{metrics['fp']:,}** were legitimate. "
+                f"It missed **{metrics['fn']:,}** labeled frauds."
             )
-
-
-    # SHAP WATERFALL
-
-    transformed_transaction = (
-        prep.transform(
-            selected_input
+            st.write(f"The saved decision threshold is **{repr(bundle.threshold)}**. It is loaded directly from the original artifact.")
+            st.caption("PR-AUC here means average precision (AP). PR and ROC metrics assess score ranking; changing a decision threshold does not change these ranking metrics.")
+        if support is not None:
+            with st.expander("Benchmark curves and baseline comparison"):
+                show_figure(performance_curves(support["benchmark_curves"]))
+                st.caption(support["curve_note"])
+                comparison = pd.DataFrame([
+                    *support["recorded_baselines"],
+                    {"Model": "XGBoost tuned", "PR-AUC": metrics["average_precision"],
+                     "ROC-AUC": metrics["roc_auc"], "Precision": metrics["precision"],
+                     "Recall": metrics["recall"], "F1 Score": metrics["f1"]},
+                ])
+                st.dataframe(comparison, hide_index=True, width="stretch")
+                st.caption("Baseline values are taken from the notebook's saved outputs and retain their recorded precision. Tuned-model values come from the original metrics artifact.")
+    except (OSError, ValueError, KeyError) as exc:
+        st.warning(f"Benchmark results are unavailable: {exc}. No substitute metrics are displayed.")
+    with st.expander("Validation and threshold selection"):
+        st.write(
+            "Exact duplicate rows were removed before a 50/50 split in original row order. "
+            "The boundary falls at elapsed seconds 84,692 / 84,693, rather than exactly at a calendar-day boundary. "
+            "Hour is an elapsed 24-hour-cycle feature; the source does not establish a wall-clock origin."
         )
-    )
-
-
-    transaction_shap_values = (
-        explainer.shap_values(
-            transformed_transaction
+        st.write(
+            "The notebook explores KFold, StratifiedKFold, and TimeSeriesSplit, then tunes with "
+            "GroupKFold grouped by Hour. Its groups do not overlap between training and validation, "
+            "but its folds are not chronological forward-validation folds."
         )
-    )
+        st.write(
+            "The final threshold was selected from out-of-fold development scores by maximizing F1 "
+            "over 0.01–0.99. The recorded development F1 increased from 0.8315 at 0.50 to 0.8760 at 0.97."
+        )
+        st.caption(
+            "Limitations: exploratory analysis used the full dataset; the test partition was inspected "
+            "during model development. Hyperparameter selection and threshold evaluation reused the development folds. "
+            "These results are educational evidence, not an untouched prospective evaluation."
+        )
+    st.divider()
+    st.subheader("Active dataset evaluation")
+    analysis = st.session_state.analysis
+    if analysis is None:
+        st.info("Load a compatible dataset to calculate its own evaluation or global explanation.")
+        return
+    if analysis.curated:
+        st.warning("Curated-sample metrics below describe the deliberately enriched demo only. They do not estimate real-world performance or prevalence.")
+    else:
+        st.caption("Uses the supplied Class column as ground truth; its reliability cannot be verified by the application.")
+    labels, reason = get_labels(analysis.raw)
+    if labels is None:
+        st.info(reason)
+    else:
+        current = evaluate_scores(labels, analysis.scores, bundle.threshold)
+        show_metrics(current)
+        with st.expander("Active dataset confusion matrix and curves"):
+            show_figure(confusion_figure(current))
+            curves = curve_data(labels, analysis.scores)
+            if curves:
+                show_figure(performance_curves(curves))
+            else:
+                st.info("Both ground-truth classes are needed to display meaningful PR/ROC curves and ranking metrics.")
+            st.caption("Undefined metrics are shown as unavailable. This evaluation never uses analyst decisions.")
+    st.subheader("Global explanation of the active dataset")
+    st.caption("Mean absolute SHAP contributions across a reproducible sample of up to 1,000 active rows.")
+    if st.button("Generate global SHAP", key="global_shap_button"):
+        try:
+            with st.spinner("Calculating the global explanation..."):
+                sample = analysis.features.sample(n=min(1000, len(analysis.raw)), random_state=42)
+                explainer = cached_explainer(bundle.model_hash, bundle.model)
+                _, values = explanation_values(bundle, explainer, sample)
+                st.session_state.global_explanation = values
+        except Exception as exc:
+            st.error(f"Global explanation could not be generated: {exc}")
+    values = st.session_state.global_explanation
+    if values is not None:
+        show_figure(global_importance(values, bundle.output_features))
+        st.caption("This explains the loaded population. With a curated sample, feature importance may differ from a representative population.")
 
 
-    shap_explanation = shap.Explanation(
-        values=transaction_shap_values[0],
-        base_values=explainer.expected_value,
-        data=transformed_transaction[0],
-        feature_names=transformed_feature_names,
-    )
+with st.sidebar:
+    st.markdown('<div class="brand">Sentinel<span class="brand-dot">.</span></div><div class="brand-subtitle">FRAUD INTELLIGENCE</div>', unsafe_allow_html=True)
+    st.caption("Educational decision-support demo")
+    st.divider()
+    page = st.radio("Workspace", PAGES, key="navigation")
+    st.divider()
+    st.caption("ORIGINAL SAVED MODEL")
+    st.write("Tuned XGBoost")
+    st.caption(f"Flag threshold: {repr(bundle.threshold)}")
+    st.caption("Exact saved scalar; no display rounding is used for inference.")
+    st.link_button("Learning notebook ↗", NOTEBOOK_URL, width="stretch")
+    st.divider()
+    analysis = st.session_state.analysis
+    if analysis:
+        st.caption("ACTIVE DATASET")
+        st.write(analysis.source)
+        st.caption(f"{len(analysis.raw):,} rows · {analysis.dataset_id[:12]}")
+        if st.button("Load another dataset", width="stretch"):
+            st.session_state.upload_open = True
+            go("Transaction Explorer")
+    st.caption("Review decisions are session-only. Export the audit log before leaving.")
 
+if support_error:
+    st.warning(f"Supporting demo/reference assets are unavailable: {support_error}")
+analysis = st.session_state.analysis
+if analysis is not None:
+    st.caption(f"ACTIVE DATASET · {analysis.source} · {len(analysis.raw):,} transactions")
+    if analysis.curated:
+        st.warning(SAMPLE_NOTICE)
+    else:
+        st.caption("Uploaded data · predictions use the original PCA feature schema.")
 
-    st.subheader(
-        "Why did the model make this prediction?"
-    )
-
-
-    fig = plt.figure(
-        figsize=(10, 7)
-    )
-
-
-    shap.plots.waterfall(
-        shap_explanation,
-        max_display=10,
-        show=False
-    )
-
-
-    st.pyplot(fig, clear_figure=True)
-
-    with st.expander("What does this mean?", expanded=False):
-        st.write("Why did we block (or approve) this specific person? The red bars pushed the suspicion score higher, while the blue bars made the transaction look safer. Here, you can see exactly which data point triggered the final decision.")
-
-
-# FOOTER
-
+input_controls(page)
+if page == "Overview":
+    overview()
+elif page == "Transaction Explorer":
+    explorer()
+elif page == "Investigation Workspace":
+    investigation()
+else:
+    intelligence()
 st.divider()
-
-st.caption(
-    "Credit Card Fraud Detection | "
-    "Tuned XGBoost | Threshold Optimization | "
-    "SHAP Explainability"
-)
+st.caption("Sentinel · Explainable Credit Card Fraud Intelligence · A DK Product")

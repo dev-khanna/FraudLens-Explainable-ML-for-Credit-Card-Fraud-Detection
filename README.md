@@ -1,136 +1,126 @@
-# Credit Card Fraud Detection
+# Sentinel — Explainable Credit Card Fraud Intelligence
 
-An end-to-end Machine Learning project designed to detect fraudulent credit card transactions on highly imbalanced data. The project spans from Exploratory Data Analysis (EDA) and robust modeling to deploying an interactive Streamlit dashboard for real-time inference and model explainability.
+A Streamlit investigation workspace built around a documented credit card fraud ML project. Explore real transactions, inspect SHAP explanations, examine a false alarm or a missed fraud, and record a simulated analyst decision.
 
-# Pipeline
+**Start with the [learning notebook](fraud_detection.ipynb).** It preserves the original EDA, baseline models, validation experiments, unsuccessful tuning attempt, final XGBoost search, threshold selection, and saved numerical results.
 
-```mermaid
-flowchart TD
-    A["EDA"] --> B["Data Preprocessing"]
-    B --> C["Model Training & Advanced Validation"]
-    C --> D["Cross Validation"]
-    D --> E["Hyperparameter Tuning"]
-    E --> F["Threshold Optimization"]
-    F --> G["Final Evaluation"]
-    G --> Z["Explainability & Deployment"]
+## Try the application
 
-    A -.-> A1
-    subgraph EDA_SUB["EDA Breakdown"]
-        direction TB
-        A1["Data Quality Check"] --> A2["Univariate Analysis"] --> A3["Bivariate & Multinomial Analysis"] --> A4["Feature Engineering"]
-    end
+Validated with Python 3.14 and the package versions in requirements.txt.
 
-    B -.-> B1
-    subgraph PREP_SUB["Data Preprocessing Breakdown"]
-        direction TB
-        B1["Train-Test Split"] --> B2["Scaling"] --> B3["Encoding"]
-    end
+    python -m pip install -r requirements.txt
+    python -m streamlit run app.py
 
-    C -.-> C1
-    subgraph MODEL_SUB["Model Training Breakdown"]
-        direction TB
-        C1["Build ML Pipelines for Each Model"] --> C2["Evaluate Each Model Using Appropriate Metrics"] --> C3["Select the Ideal Model"]
-    end
+Choose **Load Sample and Start Walkthrough**. The three short cases show:
 
-    D -.-> D1
-    subgraph CV_SUB["Cross Validation Breakdown"]
-        direction TB
-        D1["Trial Multiple CV Strategies"] --> D2["Check: Data Leakage & Fraud-per-Fold Consistency"] --> D3["Select Strategy with 0 Leakage & Consistent Fraud Ratio"]
-    end
+1. A true positive: a fraudulent transaction correctly flagged.
+2. A false positive: a legitimate transaction flagged by the model.
+3. A false negative: a fraudulent transaction below the saved threshold.
 
-    E -.-> E1
-    subgraph HPT_SUB["Hyperparameter Tuning Breakdown"]
-        direction TB
-        E1["Define Candidate Hyperparameter Combinations"] --> E2["Test Each Combination via Chosen CV Technique"] --> E3["Select Optimal Combination"]
-    end
+Each case has actual model scores, known dataset labels, SHAP contributions, and reference comparisons. The walkthrough ends at Model Intelligence, which connects the application back to the notebook.
 
-    F -.-> F1
-    subgraph THRESH_SUB["Threshold Optimization Breakdown"]
-        direction TB
-        F1["Loop Thresholds 1% to 99%"] --> F2["Calculate F1-score at Each Threshold"] --> F3["Keep Threshold with Max F1-score"]
-    end
+The app can run with the bundled small assets; the full dataset is needed only to rebuild them or repeat the original research.
 
-    G -.-> G1
-    subgraph FINAL_SUB["Final Evaluation Breakdown"]
-        direction TB
-        G1["Apply Optimal Threshold & Hyperparameters"] --> G2["Compute Final Model Metrics"]
-    end
+## What the application provides
 
-    C2 -.-> M1
-    G2 -.-> M1
-    subgraph METRICS_SUB["Metrics Used"]
-        direction TB
-        M1["PR-AUC"] --- M2["ROC-AUC"] --- M3["F1 Score"] --- M4["Recall"] --- M5["Precision"]
-    end
+- **Overview:** active transaction counts, flag rate, review progress, score distribution, and the highest-scoring alerts.
+- **Transaction Explorer:** search and filter by generated row ID, score, model result, amount, elapsed time/hour, and review status. Select a row to investigate or export all scored transactions.
+- **Investigation Workspace:** risk assessment, SHAP waterfall, legitimate-training reference bands, known dataset label when supplied, and a separate simulated analyst decision.
+- **Model Intelligence:** original benchmark metrics, recorded baseline comparison, PR/ROC curves, methodology notes, optional uploaded-data evaluation, and global SHAP.
 
-    Z -.-> Z1
-    subgraph DEPLOY_SUB["Explainability & Deployment Breakdown"]
-        direction TB
-        Z1["SHAP Explainability"] --> Z2["Streamlit Dashboard"]
-    end
+Approve, Escalate, and Block are simulation records. They do not perform banking actions, modify ground-truth labels, or update the model. Notes and revision history are held in the current session; download the CSV audit log before leaving. Earlier datasets' review events remain in that session's log.
 
-    classDef main fill:#4A90D9,stroke:#1B3B6F,color:#ffffff,font-weight:bold,stroke-width:2px;
-    classDef eda fill:#FFE0B2,stroke:#E65100,color:#000000;
-    classDef prep fill:#C8E6C9,stroke:#2E7D32,color:#000000;
-    classDef model fill:#F8BBD0,stroke:#AD1457,color:#000000;
-    classDef cv fill:#B3E5FC,stroke:#01579B,color:#000000;
-    classDef hpt fill:#E1BEE7,stroke:#6A1B9A,color:#000000;
-    classDef thresh fill:#FFCDD2,stroke:#B71C1C,color:#000000;
-    classDef final fill:#FFF59D,stroke:#F9A825,color:#000000;
-    classDef metrics fill:#B2DFDB,stroke:#00695C,color:#000000;
-    classDef deploy fill:#D7CCC8,stroke:#4E342E,color:#000000;
+## Curated demonstration sample
 
-    class A,B,C,D,E,F,G,Z main;
-    class A1,A2,A3,A4 eda;
-    class B1,B2,B3 prep;
-    class C1,C2,C3 model;
-    class D1,D2,D3 cv;
-    class E1,E2,E3 hpt;
-    class F1,F2,F3 thresh;
-    class G1,G2 final;
-    class M1,M2,M3,M4,M5 metrics;
-    class Z1,Z2 deploy;
-```
+> **Curated demonstration sample. Fraud and model-error cases are deliberately overrepresented. This sample does not represent real fraud prevalence.**
 
-## My Journey: The Process Timeline
+The bundled 1,000-row sample contains **20 true positives, 20 false positives, 20 false negatives, and 940 true negatives**. It is drawn from the existing test partition, using seed 42 for selection and shuffling. Selection intentionally uses the known labels and model outcomes.
 
-Here is the step-by-step story of how I built this fraud detection engine:
+This makes all three walkthrough cases easy to explore. Sample metrics describe this selected sample only; they do not estimate population fraud prevalence or replace the full benchmark. The app keeps this notice visible across pages and includes provenance in scored-data and decision-log exports.
 
-### 1. Data Quality Inspection
-Before feeding data to a machine, we must ensure it is pristine. We ran data quality checks and identified over 1,000 duplicate transactions. Why is this bad? If the model sees the same transaction in the training set and the test set, it simply memorizes the answer instead of learning the pattern, artificially inflating our test metrics. We removed these duplicates immediately to protect the integrity of our test.
+Generated TXN IDs identify input rows within an analysis. They are not real bank-issued transaction identifiers.
 
-### 2. Univariate & Bivariate Analysis
-We analyzed each feature in isolation and then compared them against our target variable (Fraud vs Legitimate). 
-- **The Imbalance Issue:** We discovered that a staggering 99.83% of transactions were legitimate. Because of this, we realized that standard "Accuracy" would be a completely useless metric (a broken model could just guess "Legitimate" every time and be 99.83% accurate!). We pivoted to tracking PR-AUC, Precision, Recall, and F1-Score.
-- **Isolating Predictors:** By calculating the Standardized Mean Difference (Effect Size) of our PCA features, we identified which variables naturally separated fraudsters from innocent customers (e.g., V10, V14, V17) and discarded weak predictors like transaction `Amount`.
+## Supported CSV input
 
-### 3. Feature Engineering
-Machine learning models only understand repeating patterns. We extracted an `hour_of_day` column from the raw, linear `Time` seconds counter. After plotting the densities, we discovered a massive pattern: while the raw *number* of frauds peaks at 11 AM, the actual *probability* of a transaction being fraudulent severely spikes at 2 AM. By feeding this engineered hour feature into our model, we allowed it to "see" this crucial temporal pattern.
+The model requires the original anonymized PCA feature representation:
 
-### 4. Data Preprocessing & Leakage Prevention
-Machine learning models are just calculators; they require mathematically sterile numbers. 
-- **Train/Test Splitting:** We split our dataset 50/50 across the two days of data to see if our model could learn day 1 and accurately predict day 2.
-- **Scaling:** Features with massive spreads (like Amount) were scaled down to prevent the algorithm from assigning them too much weight. Most importantly, we strictly applied the Golden Rule of Scaling: we *never* fitted our scaler on the test data, completely preventing data leakage.
+- All columns V1 through V28.
+- Amount.
+- Time (non-negative elapsed seconds) or Hour (an integer from 0 to 23).
+- Optional Class labels: 0 for legitimate, 1 for fraud.
+- Additional columns are retained but excluded from inference.
 
-### 5. Model Training & Advanced Validation
-We tested Logistic Regression and XGBoost against baseline models like Naive Bayes. XGBoost emerged as the clear winner due to its ability to handle complex, non-linear patterns.
-To ensure our model wouldn't overfit, we utilized `GroupKFold` cross-validation grouped by the hour of the day. This rigorously tested our model on unseen time blocks, ensuring it was genuinely learning fraud behaviors and not just memorizing the clock.
+The saved model's feature list determines the actual inference schema. Matching column names alone cannot establish that a different dataset uses the same PCA representation. Arbitrary banking datasets are not supported.
 
-### 6. Threshold Optimization & Deployment
-Finally, we realized that the default 50% cutoff line for flagging fraud was too generic. We tested every possible probability threshold from 1% to 99% and identified the exact cutoff point that maximized our F1-score. We wrapped our finalized pipeline and threshold into a Streamlit dashboard, creating a dual-audience application that translates complex SHAP mathematics into plain-English explanations for non-technical users.
+The app derives Hour as floor(Time / 3600) modulo 24. If both columns are present, they must agree. Hour is an elapsed-cycle feature; the source data does not establish a real wall-clock origin.
 
+Files are limited to **200 MB and 300,000 rows**. Required inputs are checked for missing, non-numeric, and infinite values. Duplicate transactions are preserved during inference. Duplicate column headers and empty files are rejected.
 
-## The Deliverables & Real-World Impact
+Uploads are identified by content hash. A valid new file replaces the active analysis and clears its selection and filters. A failed upload leaves the prior analysis active. Invalid or missing Class values disable evaluation while predictions and investigations remain available.
 
-We engineered a highly tuned XGBoost pipeline and wrapped it in a production-ready application. When deployed against an untouched Day-1 test dataset containing **141,863 total transactions**, the results were exceptional:
+CSV exports preserve original columns and add sentinel_ fields; if an original column already uses an output name, the added column receives a numeric suffix.
 
-* **Massive Precision Improvement (79.89%):** Out of 141,652 innocent customers, our algorithm only accidentally froze the cards of **40** people (False Positives). This means when this model blocks a credit card, there is an **80% chance** that the person is an actual thief.
-* **Exceptional Recall (75.35%):** Out of the 211 actual thieves attempting fraud in the dataset, our system successfully caught **159** of them.
-* **Balanced F1-Score (77.56%):** We achieved an incredibly strong balance between catching thieves and protecting innocent customers, a massive upgrade from baseline algorithms that often score below 10%.
-* **High-Performance Classification:** The model achieved a **0.7821 PR-AUC** (Precision-Recall Area Under Curve) and a **0.9712 ROC-AUC**, proving it is exceptionally confident in its decision boundaries on highly imbalanced data.
-* **Dual-Audience Dashboard:** The primary deliverable is an interactive Streamlit application. It doesn't just output predictions; it utilizes SHAP (SHapley Additive exPlanations) to show exactly *why* it blocked a specific transaction, complete with dropdown expanders that translate the machine learning math into plain English for business stakeholders.
+## Original ML results and preservation
 
-## Running the Dashboard
-1. Install dependencies: `pip install -r requirements.txt`
-2. Run the app: `streamlit run app.py`
-3. Upload a transaction CSV to view real-time scoring, probability distributions, and SHAP explanations.
+The original pipeline uses RobustScaler on Amount and Hour, passes through V1–V28, then applies the tuned XGBoost classifier.
+
+The saved threshold was verified as **np.float64(0.97) before any display formatting**. The app always uses the loaded scalar directly. The original model, threshold, and saved metrics artifacts are unchanged.
+
+On the original 141,863-row test partition:
+
+- Average precision, labeled PR-AUC: **0.7821377376**
+- ROC-AUC: **0.9712782866**
+- Precision: **79.90%**
+- Recall: **75.36%**
+- F1: **0.7756097561**
+- True positives: **159**; false positives: **40**
+- True negatives: **141,612**; false negatives: **52**
+
+The app's baseline comparison comes from the saved notebook outputs. Uploaded-data and curated-sample evaluation are explicitly separate from this benchmark.
+
+The fitted preprocessing output order is **scaled Amount, scaled Hour, V1–V28**. SHAP labels follow that fitted order. Contributions are in log-odds; raw feature reference comparisons use the original feature units. Scores are not presented as calibrated fraud probabilities.
+
+## Methodology and learning notes
+
+The notebook removes exact duplicate rows and uses a chronological 50/50 split by row count. Its boundary is at elapsed seconds 84,692 / 84,693, not exactly at a calendar-day boundary.
+
+It compares Logistic Regression, XGBoost, and Naive Bayes; examines several validation methods; and ultimately tunes XGBoost using GroupKFold grouped by Hour. Group isolation does not enforce chronological forward validation. The threshold is selected by maximizing F1 over out-of-fold development predictions.
+
+The full dataset was used for EDA, and the test partition was inspected during model development. Hyperparameter selection and threshold evaluation reused the development folds. The reported metrics are educational development results, not an untouched prospective evaluation.
+
+The notebook retains this history. The upgrade adds short accuracy notes, corrects the final SHAP figure's feature labels, aligns future export paths with the app, and appends an application handoff section. It does not change training or tuning code.
+
+## Rebuild the supporting assets
+
+Place the original creditcard.csv in data/ and run:
+
+    python scripts/prepare_demo_assets.py
+
+This inference-only utility reconstructs the notebook's deduplication and split, checks the existing benchmark, and writes:
+
+- data/sample_transactions.csv — the curated demonstration rows.
+- model_artifacts/sentinel_assets.json — provenance, fixed walkthrough cases, reference bands, benchmark curve points, and recorded baseline outputs.
+
+Reference bands use only the **141,601 legitimate training transactions**. The utility never fits a model and verifies that original artifact hashes remain unchanged. The notebook's final optional cell invokes the same utility.
+
+The large original CSV remains excluded from Git. The small sample is explicitly included.
+
+## Verification
+
+With the original dataset available:
+
+    python tests/run_checks.py
+
+The checks use Python assertions, standard-library helpers, and the existing Streamlit AppTest tooling. They verify artifact and notebook preservation, the full benchmark, sample provenance, feature mapping and SHAP additivity, input validation, decision revisions, export provenance, the three-case walkthrough, filtered-row selection, and dataset replacement.
+
+No additional testing framework or frontend framework is required.
+
+## Project layout
+
+- fraud_detection.ipynb — the original ML learning record and application handoff.
+- app.py — Streamlit entry point and four-page user journey.
+- sentinel/ — validation/inference, session records, plots, and styling.
+- scripts/prepare_demo_assets.py — reproducible supporting-asset preparation.
+- model_artifacts/ — original fitted model, threshold, metrics, and new supporting metadata.
+- tests/ — original preservation fingerprints and acceptance checks.
+- documenting_process.md — original process notes with an accuracy addendum.

@@ -1,0 +1,3 @@
+# Demo provenance hashes refer to canonical bytes on every platform.
+/data/sample_transactions.csv text eol=lf
+/model_artifacts/sentinel_assets.json text eol=lf

@@ -1,1 +1,6 @@
 *.csv
+!data/sample_transactions.csv
+__pycache__/
+*.pyc
+.streamlit/secrets.toml
+.pytest_cache/
