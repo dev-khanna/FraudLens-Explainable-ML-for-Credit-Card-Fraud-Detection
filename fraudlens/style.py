@@ -17,6 +17,10 @@ h3 { font-size: 1.05rem !important; }
 .eyebrow { color: #5dd6c0; font-size: .73rem; font-weight: 700;
     letter-spacing: .18em; margin-bottom: .65rem; }
 .hero-copy { color: #aebbd0; max-width: 720px; font-size: 1.06rem; line-height: 1.7; }
+.project-title { color: #e8eef8; max-width: 900px; font-size: 1.38rem;
+    line-height: 1.35; font-weight: 650; margin: -.4rem 0 .7rem; }
+.project-tagline { color: #5dd6c0; font-size: 1rem; font-weight: 600;
+    margin-bottom: .8rem; }
 .brand { font-size: 1.6rem; font-weight: 800; letter-spacing: .02em; color: #e8eef8; }
 .brand-dot { color: #5dd6c0; }
 .brand-subtitle { color: #95a6bf; font-size: .68rem; letter-spacing: .13em; margin-top: -.3rem; }

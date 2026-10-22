@@ -1,4 +1,8 @@
-# Sentinel — project and interview refresher
+# FraudLens — Explainable Machine Learning for Credit Card Fraud Detection & Investigation
+
+**Detect, Explain and Review Suspicious Credit Card Transactions**
+
+Project and interview refresher.
 
 Read sections 1–2 before a quick screening call. Read the rest before a technical interview, then open the [learning notebook](fraud_detection.ipynb) to revisit the actual experiments.
 
@@ -6,7 +10,7 @@ This summary follows the saved notebook outputs, fitted model, and current appli
 
 ## 1. Explain the project in 45 seconds
 
-> I built a credit card fraud classification project around a highly imbalanced, anonymized dataset. I explored data quality and feature distributions, compared Logistic Regression, XGBoost, and Gaussian Naive Bayes, and experimented with several validation strategies. My final XGBoost pipeline uses class weighting, randomized hyperparameter search, and a threshold selected from out-of-fold development predictions. On the recorded test partition, it achieved about 79.90% precision and 75.36% recall. I then built Sentinel, a Streamlit investigation workflow where users can explore alerts, inspect SHAP explanations, examine false positives and false negatives, and record simulated review decisions. The notebook preserves the experiments and their limitations, including repeated consultation of the test set.
+> I built a credit card fraud classification project around a highly imbalanced, anonymized dataset. I explored data quality and feature distributions, compared Logistic Regression, XGBoost, and Gaussian Naive Bayes, and experimented with several validation strategies. My final XGBoost pipeline uses class weighting, randomized hyperparameter search, and a threshold selected from out-of-fold development predictions. On the recorded test partition, it achieved about 79.90% precision and 75.36% recall. I then built FraudLens, a Streamlit investigation workflow where users can explore alerts, inspect SHAP explanations, examine false positives and false negatives, and record simulated review decisions. The notebook preserves the experiments and their limitations, including repeated consultation of the test set.
 
 The strongest story is the sequence of decisions: **understand the data → establish baselines → question the validation → investigate errors → explain predictions → make the results usable.**
 
@@ -22,7 +26,7 @@ The strongest story is the sequence of decisions: **understand the data → esta
 - **Confusion counts:** **159 TP, 40 FP, 52 FN, 141,612 TN**. The model flags 199 transactions, of which 159 are labeled fraud.
 - **Demo sample:** 1,000 real test-partition rows, deliberately curated to include model successes and errors. Its metrics are separate from the full benchmark.
 
-Numbers come from [saved metrics](model_artifacts/metrics.json), [supporting provenance](model_artifacts/sentinel_assets.json), and the notebook. The benchmark is a development result, not a claim about future bank transactions.
+Numbers come from [saved metrics](model_artifacts/metrics.json), [supporting provenance](model_artifacts/fraudlens_assets.json), and the notebook. The benchmark is a development result, not a claim about future bank transactions.
 
 ## 3. Data understanding and feature engineering
 
@@ -93,7 +97,9 @@ Class weighting changes the training objective so fraud examples receive more we
 
 ### First attempt
 
-The first randomized search tested **15 configurations across five TimeSeriesSplit folds**, optimizing average precision. Its best CV AP was **0.7831**.
+The first randomized search tested **15 configurations across five TimeSeriesSplit folds**, optimizing average precision. Its best CV AP was **0.7831**. 
+
+CV AP => Cross Validation Average Precision
 
 The subsequent threshold scan used predictions on the same training rows the fitted model had learned from. It selected **0.57** and reported training F1 **1.0000**. That was an optimistic in-sample result. On the test partition, AP was **0.7654**, F1 **0.7124**, and false positives increased to **89**.
 
@@ -150,7 +156,7 @@ The upgrade corrected labels using `get_feature_names_out()` from the fitted tra
 
 The workspace also compares raw feature values against medians and percentile bands from **141,601 legitimate training transactions**. These statistics are descriptive context, not additional model inputs or a second fraud classifier. Neither SHAP nor unusual percentiles establish causality or reveal what an anonymized PCA feature means in the real world.
 
-## 9. What Sentinel adds
+## 9. What FraudLens adds
 
 The workflow is **Overview → Transaction Explorer → Investigation Workspace → Model Intelligence**.
 
@@ -170,13 +176,13 @@ Uploads require `V1`–`V28`, Amount, and Time or Hour; Class is optional. The a
 
 - [Notebook](fraud_detection.ipynb): EDA, experiments, validation, searches, threshold selection, and learning notes.
 - [app.py](app.py): Streamlit interface and navigation.
-- [sentinel/core.py](sentinel/core.py): validation, saved-model inference, evaluation, and exports.
-- [sentinel/plots.py](sentinel/plots.py): Matplotlib/seaborn charts and SHAP presentation.
-- [sentinel/records.py](sentinel/records.py): session decisions, revisions, and audit export.
+- [fraudlens/core.py](fraudlens/core.py): validation, saved-model inference, evaluation, and exports.
+- [fraudlens/plots.py](fraudlens/plots.py): Matplotlib/seaborn charts and SHAP presentation.
+- [fraudlens/records.py](fraudlens/records.py): session decisions, revisions, and audit export.
 - [Preparation utility](scripts/prepare_demo_assets.py): reconstructs the original split and creates small assets without fitting anything.
 - [Acceptance checks](tests/run_checks.py): artifact hashes, preserved notebook code/outputs, benchmark reproduction, SHAP, input handling, exports, and Streamlit user journeys.
 
-The stack is Python, Streamlit, pandas, NumPy, scikit-learn, XGBoost, SHAP, Matplotlib, seaborn, Joblib, and the notebook's existing SciPy usage. No separate API server, frontend framework, database, or new third-party dependency was introduced for Sentinel.
+The stack is Python, Streamlit, pandas, NumPy, scikit-learn, XGBoost, SHAP, Matplotlib, seaborn, Joblib, and the notebook's existing SciPy usage. No separate API server, frontend framework, database, or new third-party dependency was introduced for FraudLens.
 
 The upgrade preserved the fitted models, threshold artifacts, training/tuning code, and numerical results. Notebook edits were limited to corrected final SHAP labels/output, future export paths, accuracy notes, and an application appendix.
 
@@ -213,7 +219,7 @@ Possible resume bullets, adjusted to the role and the work I can explain confide
 
 **Demo order:**
 
-1. Open Sentinel and choose **Load Sample and Start Walkthrough**; explain the sample warning.
+1. Open FraudLens and choose **Load Sample and Start Walkthrough**; explain the sample warning.
 2. Show the true positive. Separate the model result from the known label and explain one SHAP contribution.
 3. Show the false positive and false negative. Discuss review workload and missed frauds.
 4. Save a simulated decision and point to the downloadable audit history.

@@ -74,7 +74,7 @@ def load_bundle():
 
 
 def load_supporting(bundle):
-    support = json.loads((ARTIFACTS / "sentinel_assets.json").read_text(encoding="utf-8"))
+    support = json.loads((ARTIFACTS / "fraudlens_assets.json").read_text(encoding="utf-8"))
     if (
         support["model_sha256"] != bundle.model_hash
         or support["threshold_sha256"] != bundle.threshold_hash
@@ -264,13 +264,13 @@ def scored_export(analysis, threshold, latest=None):
     result = analysis.raw.copy()
     latest = latest or {}
     fields = {
-        "sentinel_row_id": analysis.row_ids,
-        "sentinel_risk_score": analysis.scores,
-        "sentinel_model_result": np.where(analysis.flags, "Flagged", "Not flagged"),
-        "sentinel_threshold": threshold,
-        "sentinel_review": [latest.get(r, "Unreviewed") for r in analysis.row_ids],
-        "sentinel_dataset_sha256": analysis.dataset_id,
-        "sentinel_provenance": analysis.provenance,
+        "fraudlens_row_id": analysis.row_ids,
+        "fraudlens_risk_score": analysis.scores,
+        "fraudlens_model_result": np.where(analysis.flags, "Flagged", "Not flagged"),
+        "fraudlens_threshold": threshold,
+        "fraudlens_review": [latest.get(r, "Unreviewed") for r in analysis.row_ids],
+        "fraudlens_dataset_sha256": analysis.dataset_id,
+        "fraudlens_provenance": analysis.provenance,
     }
     for name, value in fields.items():
         # Preserve original columns even if a scored export is uploaded again.

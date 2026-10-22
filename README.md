@@ -1,4 +1,6 @@
-# Sentinel — Explainable Credit Card Fraud Intelligence
+# FraudLens — Explainable Machine Learning for Credit Card Fraud Detection & Investigation
+
+**Detect, Explain and Review Suspicious Credit Card Transactions**
 
 A Streamlit investigation workspace built around a documented credit card fraud ML project. Explore real transactions, inspect SHAP explanations, examine a false alarm or a missed fraud, and record a simulated analyst decision.
 
@@ -6,10 +8,13 @@ A Streamlit investigation workspace built around a documented credit card fraud 
 
 ## Try the application
 
-Validated with Python 3.14 and the package versions in requirements.txt.
+Validated with Python 3.14 and the package versions in requirements.txt. From the repository root in PowerShell:
 
-    python -m pip install -r requirements.txt
-    python -m streamlit run app.py
+    python -m venv .venv
+    .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+    .\.venv\Scripts\python.exe -m streamlit run app.py
+
+Open the local URL printed by Streamlit. With an installed `.venv`, VS Code's **Run Python File** button on `app.py` also starts the Streamlit server, even if VS Code currently selects the system Python. If `.venv` already exists and has the requirements installed, only the last command is needed for terminal use.
 
 Choose **Load Sample and Start Walkthrough**. The three short cases show:
 
@@ -58,7 +63,7 @@ Files are limited to **200 MB and 300,000 rows**. Required inputs are checked fo
 
 Uploads are identified by content hash. A valid new file replaces the active analysis and clears its selection and filters. A failed upload leaves the prior analysis active. Invalid or missing Class values disable evaluation while predictions and investigations remain available.
 
-CSV exports preserve original columns and add sentinel_ fields; if an original column already uses an output name, the added column receives a numeric suffix.
+CSV exports preserve original columns and add `fraudlens_` fields; if an original column already uses an output name, the added column receives a numeric suffix.
 
 ## Original ML results and preservation
 
@@ -99,7 +104,7 @@ Place the original creditcard.csv in data/ and run:
 This inference-only utility reconstructs the notebook's deduplication and split, checks the existing benchmark, and writes:
 
 - data/sample_transactions.csv — the curated demonstration rows.
-- model_artifacts/sentinel_assets.json — provenance, fixed walkthrough cases, reference bands, benchmark curve points, and recorded baseline outputs.
+- model_artifacts/fraudlens_assets.json — provenance, fixed walkthrough cases, reference bands, benchmark curve points, and recorded baseline outputs.
 
 Reference bands use only the **141,601 legitimate training transactions**. The utility never fits a model and verifies that original artifact hashes remain unchanged. The notebook's final optional cell invokes the same utility.
 
@@ -119,7 +124,8 @@ No additional testing framework or frontend framework is required.
 
 - fraud_detection.ipynb — the original ML learning record and application handoff.
 - app.py — Streamlit entry point and four-page user journey.
-- sentinel/ — validation/inference, session records, plots, and styling.
+- fraudlens/ — validation/inference, session records, plots, and styling.
+- [FraudLens project presentation](presentations/FraudLens_Project_Presentation.pptx) — concise slides for presenting the ML work and investigation workflow.
 - scripts/prepare_demo_assets.py — reproducible supporting-asset preparation.
 - model_artifacts/ — original fitted model, threshold, metrics, and new supporting metadata.
 - tests/ — original preservation fingerprints and acceptance checks.

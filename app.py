@@ -1,4 +1,24 @@
-"""Sentinel: a small investigation workflow around the original ML pipeline."""
+"""FraudLens: an investigation workflow around the original ML pipeline."""
+
+# VS Code's "Run Python File" executes this file directly. Start Streamlit in
+# that case; a normal Streamlit run already has a ScriptRunContext.
+if __name__ == "__main__":
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+    except ModuleNotFoundError:
+        context = None
+    else:
+        context = get_script_run_ctx(suppress_warning=True)
+    if context is None:
+        app_path = Path(__file__).resolve()
+        venv_python = app_path.parent / ".venv" / "Scripts" / "python.exe"
+        python = venv_python if venv_python.is_file() else Path(sys.executable)
+        raise SystemExit(subprocess.call([str(python), "-m", "streamlit", "run", str(app_path)]))
+
 import json
 import matplotlib.pyplot as plt
 import numpy as np
@@ -6,21 +26,21 @@ import pandas as pd
 import shap
 import streamlit as st
 
-from sentinel.core import (
+from fraudlens.core import (
     ARTIFACTS, NOTEBOOK_URL, SAMPLE_NOTICE, SAMPLE_PATH, benchmark_metrics,
     curve_data, digest_bytes, evaluate_scores, explanation_values, file_digest,
     get_labels, load_bundle, load_supporting, result_table, score_csv, scored_export,
 )
-from sentinel.plots import (
+from fraudlens.plots import (
     confusion_figure, global_importance, performance_curves,
     reference_comparison, risk_distribution, waterfall_figure,
 )
-from sentinel.records import (
+from fraudlens.records import (
     DECISIONS, append_decision, audit_export, audit_frame, latest_decisions, latest_records,
 )
-from sentinel.style import CSS
+from fraudlens.style import CSS
 
-st.set_page_config(page_title="Sentinel | Fraud Intelligence", page_icon="◈", layout="wide")
+st.set_page_config(page_title="FraudLens | Credit Card Fraud Investigation", page_icon="◈", layout="wide")
 st.markdown(CSS, unsafe_allow_html=True)
 PAGES = ("Overview", "Transaction Explorer", "Investigation Workspace", "Model Intelligence")
 
@@ -66,7 +86,7 @@ except Exception as exc:
     st.stop()
 try:
     support = cached_supporting(
-        file_digest(ARTIFACTS / "sentinel_assets.json"),
+        file_digest(ARTIFACTS / "fraudlens_assets.json"),
         bundle.model_hash, bundle.threshold_hash, bundle,
     )
     support_error = None
@@ -165,7 +185,7 @@ def download_audit(key):
     events = st.session_state.audit_events
     st.download_button(
         "Download decision history (CSV)", audit_export(events),
-        file_name="sentinel_investigation_history.csv", mime="text/csv",
+        file_name="fraudlens_investigation_history.csv", mime="text/csv",
         disabled=not events, key=key,
     )
     st.caption("Includes all datasets reviewed in this session. Timestamps are labeled UTC. Download before leaving; session history is temporary.")
@@ -206,8 +226,9 @@ def input_controls(page):
 def overview():
     analysis = st.session_state.analysis
     if analysis is None:
-        st.markdown('<div class="eyebrow">EXPLAINABLE CREDIT CARD FRAUD INTELLIGENCE</div>', unsafe_allow_html=True)
-        st.title("Follow the signal. Understand the decision.")
+        st.title("FraudLens")
+        st.markdown('<div class="project-title">Explainable Machine Learning for Credit Card Fraud Detection &amp; Investigation</div>', unsafe_allow_html=True)
+        st.markdown('<div class="project-tagline">Detect, Explain and Review Suspicious Credit Card Transactions</div>', unsafe_allow_html=True)
         st.markdown(
             '<p class="hero-copy">Explore real anonymized transactions, investigate model alerts, '
             'and see where machine learning succeeds—and where it needs human judgment.</p>',
@@ -289,7 +310,7 @@ def overview():
     with st.expander("Export the active analysis"):
         st.download_button(
             "Download scored transactions (CSV)", scored_export(analysis, bundle.threshold, decisions),
-            file_name="sentinel_scored_transactions.csv", mime="text/csv", key="overview_export",
+            file_name="fraudlens_scored_transactions.csv", mime="text/csv", key="overview_export",
         )
         download_audit("overview_audit")
 
@@ -353,7 +374,7 @@ def explorer():
     st.divider()
     st.download_button(
         "Download all scored transactions (CSV)", scored_export(analysis, bundle.threshold, latest()),
-        file_name="sentinel_scored_transactions.csv", mime="text/csv", key="explorer_export",
+        file_name="fraudlens_scored_transactions.csv", mime="text/csv", key="explorer_export",
     )
     st.caption("Exports the complete active dataset, including provenance. Filters only affect the on-screen view.")
 
@@ -607,7 +628,7 @@ def intelligence():
 
 
 with st.sidebar:
-    st.markdown('<div class="brand">Sentinel<span class="brand-dot">.</span></div><div class="brand-subtitle">FRAUD INTELLIGENCE</div>', unsafe_allow_html=True)
+    st.markdown('<div class="brand">FraudLens<span class="brand-dot">.</span></div><div class="brand-subtitle">DETECT · EXPLAIN · REVIEW</div>', unsafe_allow_html=True)
     st.caption("Educational decision-support demo")
     st.divider()
     page = st.radio("Workspace", PAGES, key="navigation")
@@ -648,4 +669,4 @@ elif page == "Investigation Workspace":
 else:
     intelligence()
 st.divider()
-st.caption("Sentinel · Explainable Credit Card Fraud Intelligence · A DK Product")
+st.caption("FraudLens · Explainable Machine Learning for Credit Card Fraud Detection & Investigation")

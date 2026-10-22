@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from sentinel.core import (
+from fraudlens.core import (
     ARTIFACTS, SAMPLE_PATH, SAMPLE_NOTICE, benchmark_metrics, curve_data,
     evaluate_scores, file_digest, load_bundle, prepare_features,
 )
@@ -136,7 +136,7 @@ def build_assets(dataset_path=None):
     SAMPLE_PATH.parent.mkdir(exist_ok=True)
     SAMPLE_PATH.write_text(sample_csv, encoding="utf-8", newline="")
     support["sample_sha256"] = file_digest(SAMPLE_PATH)
-    (ARTIFACTS / "sentinel_assets.json").write_text(
+    (ARTIFACTS / "fraudlens_assets.json").write_text(
         json.dumps(support, indent=2, allow_nan=False) + "\n", encoding="utf-8", newline=""
     )
     assert original_hashes == {str(p): file_digest(p) for p in protected}

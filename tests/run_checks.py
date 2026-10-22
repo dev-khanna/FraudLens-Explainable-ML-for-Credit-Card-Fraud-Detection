@@ -16,13 +16,13 @@ from streamlit.testing.v1 import AppTest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from sentinel import core
-from sentinel.core import (
+from fraudlens import core
+from fraudlens.core import (
     SAMPLE_NOTICE, SAMPLE_PATH, benchmark_metrics, digest_bytes, evaluate_scores,
     explanation_values, get_labels, load_bundle, load_supporting, prepare_features,
     read_csv_bytes, result_table, score_csv, scored_export,
 )
-from sentinel.records import append_decision, audit_export, latest_decisions
+from fraudlens.records import append_decision, audit_export, latest_decisions
 from scripts.prepare_demo_assets import reconstruct_partitions
 
 
@@ -57,7 +57,7 @@ def check_inference():
     support = load_supporting(bundle)
     payload = SAMPLE_PATH.read_bytes()
     assert b"\r\n" not in payload, "Demo assets must use canonical LF bytes across Git checkouts."
-    assert b"\r\n" not in (core.ARTIFACTS / "sentinel_assets.json").read_bytes()
+    assert b"\r\n" not in (core.ARTIFACTS / "fraudlens_assets.json").read_bytes()
     analysis = score_csv(payload, "sample.csv", bundle, support["sample_sha256"])
     assert analysis.curated and len(analysis.raw) == 1000
     assert bundle.threshold == 0.97
@@ -140,8 +140,8 @@ def check_inference():
     assert audit["provenance"].eq(analysis.provenance).all()
     assert SAMPLE_NOTICE in analysis.provenance and "test partition" in analysis.provenance
     exported = pd.read_csv(io.BytesIO(scored_export(analysis, bundle.threshold, latest_decisions(events, analysis.dataset_id))))
-    assert exported["sentinel_provenance"].eq(analysis.provenance).all()
-    assert np.allclose(exported["sentinel_risk_score"], analysis.scores)
+    assert exported["fraudlens_provenance"].eq(analysis.provenance).all()
+    assert np.allclose(exported["fraudlens_risk_score"], analysis.scores)
     assert np.array_equal(before, analysis.scores)
     print("PASS input validation, optional labels, file identity, row preservation, review revisions, provenance exports", flush=True)
     return bundle, support, analysis
@@ -267,4 +267,4 @@ if __name__ == "__main__":
     check_full_benchmark(bundle, support)
     check_ui(support)
     check_preservation()
-    print("All Sentinel acceptance checks passed.", flush=True)
+    print("All FraudLens acceptance checks passed.", flush=True)
