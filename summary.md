@@ -97,9 +97,7 @@ Class weighting changes the training objective so fraud examples receive more we
 
 ### First attempt
 
-The first randomized search tested **15 configurations across five TimeSeriesSplit folds**, optimizing average precision. Its best CV AP was **0.7831**. 
-
-CV AP => Cross Validation Average Precision
+The first randomized search tested **15 configurations across five TimeSeriesSplit folds**, optimizing average precision. Its best cross-validation average precision (CV AP) was **0.7831**.
 
 The subsequent threshold scan used predictions on the same training rows the fitted model had learned from. It selected **0.57** and reported training F1 **1.0000**. That was an optimistic in-sample result. On the test partition, AP was **0.7654**, F1 **0.7124**, and false positives increased to **89**.
 
@@ -225,6 +223,6 @@ Possible resume bullets, adjusted to the role and the work I can explain confide
 4. Save a simulated decision and point to the downloadable audit history.
 5. Open Model Intelligence, explain the benchmark tradeoff and validation limitation, then show the notebook's unsuccessful and final tuning attempts.
 
-To run the app: `python -m streamlit run app.py`.
+To run the app from the repository root: `.\.venv\Scripts\python.exe -m streamlit run app.py`.
 
 Before an interview, practice answering: **Why this metric? Why this split? What went wrong initially? What does the threshold do? How do explanations stay aligned with preprocessing? What evidence would I need before using this beyond a demo?**

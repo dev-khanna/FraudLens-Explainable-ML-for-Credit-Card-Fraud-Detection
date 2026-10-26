@@ -6,6 +6,98 @@ A Streamlit investigation workspace built around a documented credit card fraud 
 
 **Start with the [learning notebook](fraud_detection.ipynb).** It preserves the original EDA, baseline models, validation experiments, unsuccessful tuning attempt, final XGBoost search, threshold selection, and saved numerical results.
 
+## Pipeline
+
+```mermaid
+flowchart TD
+    A["EDA"] --> B["Data Preprocessing"]
+    B --> C["Model Training & Advanced Validation"]
+    C --> D["Cross Validation"]
+    D --> E["Hyperparameter Tuning"]
+    E --> F["Threshold Optimization"]
+    F --> G["Final Evaluation"]
+    G --> Z["Explainability & Investigation App"]
+
+    A -.-> A1
+    subgraph EDA_SUB["EDA Breakdown"]
+        direction TB
+        A1["Data Quality Check"] --> A2["Univariate Analysis"] --> A3["Bivariate & Multicollinearity Analysis"] --> A4["Feature Engineering"]
+    end
+
+    B -.-> B1
+    subgraph PREP_SUB["Data Preprocessing Breakdown"]
+        direction TB
+        B1["Ordered 50/50 Train-Test Split"] --> B2["RobustScaler on Amount and Hour"] --> B3["Pass Through V1-V28"]
+    end
+
+    C -.-> C1
+    subgraph MODEL_SUB["Model Training Breakdown"]
+        direction TB
+        C1["Build ML Pipelines for Each Model"] --> C2["Evaluate Each Model Using Appropriate Metrics"] --> C3["Choose XGBoost for Final Tuning"]
+    end
+
+    D -.-> D1
+    subgraph CV_SUB["Cross Validation Breakdown"]
+        direction TB
+        D1["Trial Multiple CV Strategies"] --> D2["Inspect Fold Balance and Time Order"] --> D3["Use GroupKFold by Hour; Chronology Not Enforced"]
+    end
+
+    E -.-> E1
+    subgraph HPT_SUB["Hyperparameter Tuning Breakdown"]
+        direction TB
+        E1["Define Candidate Hyperparameter Combinations"] --> E2["Test Each Combination via GroupKFold"] --> E3["Select Best Cross-Validation Average Precision"]
+    end
+
+    F -.-> F1
+    subgraph THRESH_SUB["Threshold Optimization Breakdown"]
+        direction TB
+        F1["Scan Thresholds 0.01 to 0.99"] --> F2["Calculate F1 from Out-of-Fold Development Scores"] --> F3["Select Saved Threshold 0.97"]
+    end
+
+    G -.-> G1
+    subgraph FINAL_SUB["Final Evaluation Breakdown"]
+        direction TB
+        G1["Score Later Test Rows with Fitted Model and Threshold"] --> G2["Compute Recorded Test Metrics"]
+    end
+
+    C2 -.-> M1
+    G2 -.-> M1
+    subgraph METRICS_SUB["Metrics Used"]
+        direction TB
+        M1["Average Precision / Project PR-AUC"] --- M2["ROC-AUC"] --- M3["F1 Score"] --- M4["Recall"] --- M5["Precision"]
+    end
+
+    Z -.-> Z1
+    subgraph APP_SUB["Explainability & Investigation Breakdown"]
+        direction TB
+        Z1["SHAP Explainability"] --> Z2["FraudLens Streamlit App"]
+    end
+
+    classDef main fill:#4A90D9,stroke:#1B3B6F,color:#ffffff,font-weight:bold,stroke-width:2px;
+    classDef eda fill:#FFE0B2,stroke:#E65100,color:#000000;
+    classDef prep fill:#C8E6C9,stroke:#2E7D32,color:#000000;
+    classDef model fill:#F8BBD0,stroke:#AD1457,color:#000000;
+    classDef cv fill:#B3E5FC,stroke:#01579B,color:#000000;
+    classDef hpt fill:#E1BEE7,stroke:#6A1B9A,color:#000000;
+    classDef thresh fill:#FFCDD2,stroke:#B71C1C,color:#000000;
+    classDef final fill:#FFF59D,stroke:#F9A825,color:#000000;
+    classDef metrics fill:#B2DFDB,stroke:#00695C,color:#000000;
+    classDef deploy fill:#D7CCC8,stroke:#4E342E,color:#000000;
+
+    class A,B,C,D,E,F,G,Z main;
+    class A1,A2,A3,A4 eda;
+    class B1,B2,B3 prep;
+    class C1,C2,C3 model;
+    class D1,D2,D3 cv;
+    class E1,E2,E3 hpt;
+    class F1,F2,F3 thresh;
+    class G1,G2 final;
+    class M1,M2,M3,M4,M5 metrics;
+    class Z1,Z2 deploy;
+```
+
+The diagram summarizes the recorded workflow. The test partition was consulted during development, so its results are not an untouched prospective evaluation.
+
 ## Try the application
 
 Validated with Python 3.14 and the package versions in requirements.txt. From the repository root in PowerShell:
@@ -99,7 +191,7 @@ The notebook retains this history. The upgrade adds short accuracy notes, correc
 
 Place the original creditcard.csv in data/ and run:
 
-    python scripts/prepare_demo_assets.py
+    .\.venv\Scripts\python.exe scripts/prepare_demo_assets.py
 
 This inference-only utility reconstructs the notebook's deduplication and split, checks the existing benchmark, and writes:
 
@@ -114,7 +206,7 @@ The large original CSV remains excluded from Git. The small sample is explicitly
 
 With the original dataset available:
 
-    python tests/run_checks.py
+    .\.venv\Scripts\python.exe tests/run_checks.py
 
 The checks use Python assertions, standard-library helpers, and the existing Streamlit AppTest tooling. They verify artifact and notebook preservation, the full benchmark, sample provenance, feature mapping and SHAP additivity, input validation, decision revisions, export provenance, the three-case walkthrough, filtered-row selection, and dataset replacement.
 
@@ -125,7 +217,8 @@ No additional testing framework or frontend framework is required.
 - fraud_detection.ipynb — the original ML learning record and application handoff.
 - app.py — Streamlit entry point and four-page user journey.
 - fraudlens/ — validation/inference, session records, plots, and styling.
-- [FraudLens project presentation](presentations/FraudLens_Project_Presentation.pptx) — concise slides for presenting the ML work and investigation workflow.
+- [Practice School report](FraudLens_Practice_School_Report.docx) — short project report in the supplied academic format.
+- summary.md — interview and project refresher.
 - scripts/prepare_demo_assets.py — reproducible supporting-asset preparation.
 - model_artifacts/ — original fitted model, threshold, metrics, and new supporting metadata.
 - tests/ — original preservation fingerprints and acceptance checks.
